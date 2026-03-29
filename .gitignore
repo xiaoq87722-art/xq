@@ -31,10 +31,9 @@
 *.out
 *.app
 
-*.o
 
-./examples/client/client
-./examples/server/server
-./examples/server/logs
-./examples/log/logs
-./examples/log/log
+examples/client/client
+examples/server/server
+examples/server/logs
+examples/log/logs
+examples/log/log
