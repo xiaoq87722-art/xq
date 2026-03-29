@@ -133,6 +133,9 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
 
             if (!(cqe->flags & IORING_CQE_F_MORE)) {
                 xERROR("multishot accept stopped for {}", l->host());
+                if (state_ == STATE_RUNNING) {
+                    l->submit_accept(&uring_);
+                }
             }
 
             cfd = cqe->res;

@@ -49,16 +49,16 @@ public:
     }
 
 
-private:
-    Listener(const char* endpoint) noexcept;
-
-
     void
     submit_accept(io_uring* uring) noexcept {
         auto *sqe = acquire_sqe(uring);
         ::io_uring_sqe_set_data(sqe, (void*)this);
         ::io_uring_prep_multishot_accept(sqe, lfd_, nullptr, nullptr, 0);
     }
+
+
+private:
+    Listener(const char* endpoint) noexcept;
 
 
     /** 监听套接字 */

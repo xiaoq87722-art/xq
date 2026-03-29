@@ -59,10 +59,17 @@ public:
                 start_ = 0;
                 end_ = logical_len;
             } else {
-                cap_ = std::max(cap_ * 2, end_ + datalen);
-                auto tmp = (uint8_t*)xq::utils::realloc(data_, cap_);
-                ASSERT(tmp, "realloc failed");
+                uint32_t new_cap = std::max(cap_ * 2, logical_len + datalen);
+                auto tmp = (uint8_t*)xq::utils::malloc(new_cap);
+                ASSERT(tmp, "malloc failed");
+                if (logical_len > 0) {
+                    ::memcpy(tmp, data_ + start_, logical_len);
+                }
+                xq::utils::free(data_);
                 data_ = tmp;
+                cap_ = new_cap;
+                start_ = 0;
+                end_ = logical_len;
             }
         }
 

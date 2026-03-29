@@ -6,7 +6,7 @@
 #include <list>
 
 
-static void
+static inline void
 block_signal() {
     sigset_t set{};
 
@@ -87,6 +87,7 @@ xq::net::Reactor::run() noexcept {
     io_uring_cqe* cqe;
     tid_ = ::pthread_self();
     int ret;
+    bool should_stop = false;
 
     // Step 4, IO LOOP
     state_ = STATE_RUNNING;
@@ -102,30 +103,34 @@ xq::net::Reactor::run() noexcept {
         io_uring_for_each_cqe(&uring_, head, cqe) {
             count++;
             auto* ev = (RingEvent*)::io_uring_cqe_get_data(cqe);
+            if (!ev) {
+                continue;
+            }
 
             switch (ev->cmd) {
+                case RingCommand::R_STOP:
+                    on_r_stop(cqe, ev);
+                    should_stop = true;
+                    break;
+
                 case RingCommand::S_ACCEPT:
-                    ret = on_s_accept(cqe, ev);
+                    on_s_accept(cqe, ev);
                     break;
 
                 case RingCommand::S_RECV:
-                    ret = on_s_read(cqe, ev);
+                    on_s_read(cqe, ev);
                     break;
 
                 case RingCommand::S_SEND:
-                    ret = on_s_send(cqe, ev);
-                    break;
-
-                case RingCommand::R_STOP:
-                    ret = on_r_stop(cqe, ev);
+                    on_s_send(cqe, ev);
                     break;
 
                 case RingCommand::R_TIMER:
-                    ret = on_r_timer(cqe, ev);
+                    on_r_timer(cqe, ev);
                     break;
 
                 case RingCommand::R_SEND:
-                    ret = on_r_send(cqe, ev);
+                    on_r_send(cqe, ev);
                     break;
             }
         }
@@ -134,7 +139,7 @@ xq::net::Reactor::run() noexcept {
             ::io_uring_cq_advance(&uring_, count);
         }
 
-        if (ret == -1) {
+        if (should_stop) {
             break;
         }
     }
@@ -156,24 +161,22 @@ xq::net::Reactor::run() noexcept {
 }
 
 
-int
+void
 xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
     ev_pool_.release_event(ev);
-    return -1;
 }
 
 
-int
+void
 xq::net::Reactor::on_s_accept(io_uring_cqe*, RingEvent* ev) noexcept {
     Session* s = (Session*)ev->ex;
     sessions_.insert(std::make_pair(ev->fd, s));
     s->submit_recv();
     ev_pool_.release_event(ev);
-    return 0;
 }
 
 
-int
+void
 xq::net::Reactor::on_r_timer(io_uring_cqe*, RingEvent* ev) noexcept {
     std::vector<Session*> rmlist;
     const auto timeout = Conf::instance()->timeout();
@@ -190,11 +193,10 @@ xq::net::Reactor::on_r_timer(io_uring_cqe*, RingEvent* ev) noexcept {
     }
 
     setup_timer(this, ev);
-    return 0;
 }
 
 
-int
+void
 xq::net::Reactor::on_s_read(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
     auto sess = (Session*)ev->ex;
@@ -224,46 +226,43 @@ xq::net::Reactor::on_s_read(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         ev_pool_.release_event(ev);
         sess->release();
     }
-
-    return 0;
 }
 
 
-int
+void
 xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
     auto sess = (Session*)ev->ex;
     auto wbuf = sess->current_wbuf();
 
-    ev_pool_.release_event(ev);
-
-    if (res <= 0) {
-        if (res < 0) {
-            xERROR("{} write failed: [{}]{}", sess->remote_addr(), -res, ::strerror(-res));
+    do {
+        if (res <= 0) {
+            if (res < 0) {
+                xERROR("{} write failed: [{}]{}", sess->remote_addr(), -res, ::strerror(-res));
+            }
+            sess->sending(false);
+            break;
         }
+
+        wbuf->consume(res);
+        loaded_.fetch_add(res, std::memory_order_relaxed);
+
         sess->sending(false);
-        return 0;
-    }
+        sess->drain_wque();
+        sess->submit_send();
+    } while(0);
 
-    wbuf->consume(res);
-    loaded_.fetch_add(res, std::memory_order_relaxed);
-
-    sess->sending(false);
-    sess->drain_wque();
-    sess->submit_send();
-
-    return 0;
+    ev_pool_.release_event(ev);
 }
 
 
-int
+void
 xq::net::Reactor::on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
     auto sess = (Session*)ev->ex;
 
     do {
         if (sessions_.count(ev->fd) == 0) {
-            sess->release();
             break;
         }
 
@@ -272,5 +271,4 @@ xq::net::Reactor::on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     } while(0);
 
     ev_pool_.release_event(ev);
-    return 0;
 }

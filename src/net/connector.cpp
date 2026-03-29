@@ -172,16 +172,8 @@ xq::net::Connector::on_recv(io_uring_cqe* cqe, RingEvent* ev) {
     auto res = cqe->res;
     auto conn = (Conn*)ev->ex;
 
-    if (res <= 0) {
-        if (res == 0) xINFO("{} has lost connections", conn->host());
-        else xERROR("{} recv error: {}", conn->host(), ::strerror(-res));
-
-        conns_.erase(conn->host());
-        ev_pool_.release_event(ev);
-        delete conn;
-        return 0;
-    }
-
+    bool should_cleanup = (res <= 0);
+    
     if (res > 0) {
         auto bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
         auto* buf = brbufs_[bid];
@@ -191,6 +183,19 @@ xq::net::Connector::on_recv(io_uring_cqe* cqe, RingEvent* ev) {
 
         ::io_uring_buf_ring_add(br, buf, BUF_SIZE, bid, ::io_uring_buf_ring_mask(BUF_COUNT), bid);
         ::io_uring_buf_ring_advance(br, 1);
+
+        if (!(cqe->flags & IORING_CQE_F_MORE)) {
+            should_cleanup = true;
+        }
+    }
+
+    if (should_cleanup) {
+        if (res == 0) xINFO("{} has lost connections", conn->host());
+        else if (res < 0) xERROR("{} recv error: {}", conn->host(), ::strerror(-res));
+
+        conns_.erase(conn->host());
+        ev_pool_.release_event(ev);
+        delete conn;
     }
 
     return 0;
