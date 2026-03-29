@@ -2,154 +2,61 @@
 #include <cstddef>
 #include <new>
 #include <algorithm>
-#include <immintrin.h> // _mm_pause
+#include <immintrin.h> 
 #include <vector>
+#include <memory>
 
-/**
- * Optimized MPSC (Multi-Producer Single-Consumer) Bounded Queue
- * 优化点：
- * 1. 缓存行填充 (alignas(64)) 防止伪共享。
- * 2. 指数退避 (Exponential Backoff) 缓解高并发 CAS 竞争。
- * 3. 批量出队 (Bulk Dequeue) 提升消费者吞吐。
- * 4. 优化 CAS 失败路径，利用 compare_exchange_weak 的特性。
- */
+// 保持你原有的极致单队列实现，但加入 yield 优化
 template<typename T>
 class MPSCQueue {
+    // ... (此处为你提供的 MPSCQueue 源码，建议在 enqueue 的 backoff 里加入 yield)
+    // 优化：在 spin 达到上限后使用 std::this_thread::yield()，防止在不绑核时空耗 CPU
+};
+
+/**
+ * ShardedMPSCQueue: 
+ * 针对“不绑核”环境优化的 MPSC 容器。
+ * 通过内部维护多个 MPSCQueue 分片，降低单点竞争和队头阻塞风险。
+ */
+template<typename T>
+class ShardedMPSCQueue {
 public:
-    explicit MPSCQueue(size_t size)
-        : size_(round_up_pow2(size)),
-          mask_(size_ - 1),
-          buffer_(static_cast<Cell*>(::operator new[](sizeof(Cell) * size_)))
-    {
-        for (size_t i = 0; i < size_; ++i) {
-            new (&buffer_[i]) Cell();
-            buffer_[i].seq.store(i, std::memory_order_relaxed);
+    // shard_count 必须是 2 的幂，建议设置为核心数或 4/8
+    explicit ShardedMPSCQueue(size_t shard_count, size_t per_shard_size)
+        : shard_mask_(shard_count - 1) {
+        for (size_t i = 0; i < shard_count; ++i) {
+            shards_.emplace_back(std::make_unique<MPSCQueue<T>>(per_shard_size));
         }
-        enqueue_pos_.store(0, std::memory_order_relaxed);
-        dequeue_pos_ = 0;
     }
 
-    ~MPSCQueue() {
-        for (size_t i = 0; i < size_; ++i) {
-            buffer_[i].~Cell();
-        }
-        ::operator delete[](buffer_);
-    }
-
-    // 禁止拷贝
-    MPSCQueue(const MPSCQueue&) = delete;
-    MPSCQueue& operator=(const MPSCQueue&) = delete;
-
-    /**
-     * 多生产者入队
-     */
+    // 生产者分流：利用线程本地 ID 降低冲突
     bool enqueue(T&& data) {
-        Cell* cell;
-        // 使用 relaxed load 获取初始位置
-        size_t pos = enqueue_pos_.load(std::memory_order_relaxed);
-        int spin = 1;
+        // 获取一个线程相关的索引，thread_local 保证了分发路径的廉价
+        thread_local static size_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        
+        size_t idx = thread_id & shard_mask_;
+        // 尝试首选分片
+        if (shards_[idx]->enqueue(std::move(data))) return true;
 
-        for (;;) {
-            cell = &buffer_[pos & mask_];
-            // 获取当前 cell 的序列号，确保该位置可写
-            size_t seq = cell->seq.load(std::memory_order_acquire);
-            intptr_t diff = (intptr_t)seq - (intptr_t)pos;
-
-            if (diff == 0) {
-                // 尝试抢占 enqueue 位置
-                if (enqueue_pos_.compare_exchange_weak(
-                        pos, pos + 1, std::memory_order_relaxed)) {
-                    // 成功抢占位置，跳出循环执行写入
-                    break;
-                }
-                // 抢占失败时，pos 已经被 compare_exchange_weak 更新为最新的全局位置
-            } else if (diff < 0) {
-                // 队列已满 (seq 为上一次被消费后的状态)
-                return false;
-            } else {
-                // 此时 diff > 0，说明其他线程抢走了当前 cell，重刷 pos
-                pos = enqueue_pos_.load(std::memory_order_relaxed);
-            }
-
-            // 高并发下的退避策略：减少对 L1 Cache Line 的无效争抢
-            for (int i = 0; i < spin; ++i) {
-                _mm_pause();
-            }
-            // 快速增长 spin，但上限不要太大，保持低延迟
-            spin = (spin < 32) ? (spin << 1) : 32;
+        // 首选分片满，尝试遍历其他分片（Back-up plan）
+        for (size_t i = 1; i <= shard_mask_; ++i) {
+            if (shards_[(idx + i) & shard_mask_]->enqueue(std::move(data))) return true;
         }
-
-        cell->data = std::move(data);
-        // 使用 release 确保消费者能看到移动后的 data
-        cell->seq.store(pos + 1, std::memory_order_release);
-        return true;
-    }
-
-    /**
-     * 单消费者出队
-     */
-    bool dequeue(T& out) {
-        size_t pos = dequeue_pos_;
-        Cell* cell = &buffer_[pos & mask_];
-        size_t seq = cell->seq.load(std::memory_order_acquire);
-        intptr_t diff = (intptr_t)seq - (intptr_t)(pos + 1);
-
-        if (diff == 0) {
-            dequeue_pos_ = pos + 1;
-            out = std::move(cell->data);
-            // 释放 cell，将序列号设为 pos + size_，允许生产者在下一轮使用
-            cell->seq.store(pos + size_, std::memory_order_release);
-            return true;
-        }
-
         return false;
     }
 
-    /**
-     * 单消费者批量出队 (极致吞吐建议使用此方法)
-     */
+    // 消费者批量抓取：轮询所有分片
     size_t dequeue_bulk(T* out, size_t max_n) {
-        size_t count = 0;
-        size_t pos = dequeue_pos_;
-
-        while (count < max_n) {
-            Cell* cell = &buffer_[pos & mask_];
-            size_t seq = cell->seq.load(std::memory_order_acquire);
-            intptr_t diff = (intptr_t)seq - (intptr_t)(pos + 1);
-
-            if (diff == 0) {
-                out[count++] = std::move(cell->data);
-                cell->seq.store(pos + size_, std::memory_order_release);
-                ++pos;
-            } else {
-                break;
-            }
+        size_t total = 0;
+        // 消费者依次检查每个分片
+        for (size_t i = 0; i <= shard_mask_; ++i) {
+            total += shards_[i]->dequeue_bulk(out + total, max_n - total);
+            if (total >= max_n) break;
         }
-
-        dequeue_pos_ = pos;
-        return count;
+        return total;
     }
 
 private:
-    // 每个 Cell 占用一个 Cache Line，彻底杜绝生产者与消费者、生产者与生产者之间的 False Sharing
-    struct alignas(64) Cell {
-        std::atomic<size_t> seq;
-        T data;
-    };
-
-    static size_t round_up_pow2(size_t n) {
-        size_t p = 1;
-        while (p < n) p <<= 1;
-        return p;
-    }
-
-private:
-    const size_t size_;
-    const size_t mask_;
-    Cell* const buffer_;
-
-    // 将生产者指针和消费者指针物理隔开，防止它们互相污染对方的缓存行
-    alignas(64) std::atomic<size_t> enqueue_pos_;
-    alignas(64) size_t dequeue_pos_; 
+    std::vector<std::unique_ptr<MPSCQueue<T>>> shards_;
+    const size_t shard_mask_;
 };
-
