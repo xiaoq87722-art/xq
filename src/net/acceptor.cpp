@@ -18,10 +18,16 @@ signal_handler(int sig) {
 
 static xq::net::Reactor*
 get_reactor(const std::vector<xq::net::Reactor*>& reactors) {
+    if (reactors.empty()) return nullptr;
+
     auto reactor = reactors[0];
+    uint64_t min_load = reactor->loaded();
+
     for (size_t i = 1, n = reactors.size(); i < n; ++i) {
-        if (reactors[i]->loaded() < reactor->loaded()) {
+        uint64_t cur_load = reactors[i]->loaded();
+        if (cur_load < min_load) {
             reactor = reactors[i];
+            min_load = cur_load;
         }
     }
 
@@ -132,9 +138,17 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
                 continue;
             }
 
-            auto* s = sess_slots_[cfd - basefd];
+            const auto idx = cfd - basefd;
+            if (idx >= sess_slots_.size()) {
+                xERROR("cfd {} out of range (basefd: {}, max: {})", cfd, basefd, sess_slots_.size());
+                ::close(cfd);
+                continue;
+            }
+
+            auto* s = sess_slots_[idx];
             if (!s) {
                 s = new Session;
+                sess_slots_[idx] = s;
             }
 
             auto* r = get_reactor(reactors);

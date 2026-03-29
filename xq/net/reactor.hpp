@@ -98,6 +98,7 @@ private:
     std::unordered_map<SOCKET, Session*> sessions_;
 
     /** buf ring 缓冲区 */
+    io_uring_buf_ring* br_ { nullptr };
     std::vector<uint8_t*> brbufs_;
 
     RingEvent::Pool ev_pool_;

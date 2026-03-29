@@ -179,12 +179,12 @@ sockaddr_to_string(const sockaddr* addr) noexcept {
 }
 
 
-void*
+io_uring_buf_ring*
 init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*>& brbufs) noexcept;
 
 
 void
-release_io_uring_with_br(io_uring* uring, void* ptr, std::vector<uint8_t*>& brbufs) noexcept;
+release_io_uring_with_br(io_uring* uring, io_uring_buf_ring* ptr, std::vector<uint8_t*>& brbufs) noexcept;
 
 
 } // namespace net

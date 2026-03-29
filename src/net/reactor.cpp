@@ -31,7 +31,7 @@ setup_timer(xq::net::Reactor* reactor, xq::net::RingEvent* ev) {
 
         ASSERT(!::timerfd_settime(tfd, 0, &its, nullptr), "[{}] {}", errno, ::strerror(errno));
 
-        uint64_t counter = 0;
+        uint64_t* counter = new uint64_t(0);
         ev = reactor->ev_pool().acquire_event();
         ev->init(xq::net::RingCommand::R_TIMER, tfd, (void*)(uintptr_t)counter);
     }
@@ -46,6 +46,8 @@ setup_timer(xq::net::Reactor* reactor, xq::net::RingEvent* ev) {
 static inline void
 release_timer(xq::net::Reactor* reactor, xq::net::RingEvent *ev) {
     ::close(ev->fd);
+    uint64_t* counter = (uint64_t*)ev->ex;
+    delete counter;
     reactor->ev_pool().release_event(ev);
 }
 
@@ -76,7 +78,7 @@ xq::net::Reactor::run() noexcept {
     block_signal();
 
     // Step 2, 初始化io_uring 和 buf_ring
-    void* ptr = init_io_uring_with_br(&uring_, brbufs_);
+    br_ = init_io_uring_with_br(&uring_, brbufs_);
     
     // Step 3, 注册定时器
     auto* timer = setup_timer(this, nullptr);
@@ -143,7 +145,7 @@ xq::net::Reactor::run() noexcept {
     release_timer(this, timer);
 
     // Step 6, 释放 io_uring 和 buf_ring
-    release_io_uring_with_br(&uring_, ptr, brbufs_);
+    release_io_uring_with_br(&uring_, br_, brbufs_);
 
     for (auto& s: sessions_) {
         s.second->release();
@@ -221,6 +223,13 @@ xq::net::Reactor::on_s_read(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     res = sess->send(this, buf, res);
     sess->active_time(tnow_);
     loaded_ += res;
+
+    const int BUF_SIZE = xq::net::Conf::instance()->br_buf_size();
+    const int BUF_COUNT = xq::net::Conf::instance()->br_buf_count();
+    
+    ::io_uring_buf_ring_add(br_, buf, BUF_SIZE, bid, ::io_uring_buf_ring_mask(BUF_COUNT), bid);
+    ::io_uring_buf_ring_advance(br_, 1);
+
     return 0;
 }
 

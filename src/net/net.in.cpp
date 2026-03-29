@@ -90,7 +90,7 @@ xq::net::tcp_listen(const char* host, int rcv_buf, int snd_buf) noexcept {
 }
 
 
-void*
+io_uring_buf_ring*
 xq::net::init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*> &brbufs) noexcept {
     const auto que_depth = xq::net::Conf::instance()->que_depth();
     int ret = ::io_uring_queue_init(que_depth, uring, IORING_SETUP_SINGLE_ISSUER);
@@ -116,7 +116,7 @@ xq::net::init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*> &brbufs) n
     ret = ::io_uring_register_buf_ring(uring, &reg, 0);
     ASSERT(ret == 0, "io_uring_register_buf_ring failed: {}, {}", -ret, ::strerror(-ret));
 
-    io_uring_buf_ring *br = (io_uring_buf_ring*)ptr;
+    io_uring_buf_ring* br = (io_uring_buf_ring*)ptr;
     ::io_uring_buf_ring_init(br);
 
     for (int i = 0; i < BUF_COUNT; ++i) {
@@ -126,12 +126,12 @@ xq::net::init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*> &brbufs) n
     }
     ::io_uring_buf_ring_advance(br, BUF_COUNT);
 
-    return ptr;
+    return br;
 }
 
 
 void
-xq::net::release_io_uring_with_br(io_uring* uring, void* ptr, std::vector<uint8_t*>& brbufs) noexcept {
+xq::net::release_io_uring_with_br(io_uring* uring, io_uring_buf_ring* br, std::vector<uint8_t*>& brbufs) noexcept {
     const auto BR_SIZE = Conf::instance()->br_buf_count() * Conf::instance()->br_buf_size();
 
     int ret = ::io_uring_unregister_buf_ring(uring, 1);
@@ -143,7 +143,7 @@ xq::net::release_io_uring_with_br(io_uring* uring, void* ptr, std::vector<uint8_
         xq::utils::free(buf);
     }
 
-    ASSERT(!::munmap(ptr, BR_SIZE), "[{}] {}", errno, ::strerror(errno));
+    ASSERT(!::munmap(br, BR_SIZE), "[{}] {}", errno, ::strerror(errno));
     brbufs.clear();
 }
 

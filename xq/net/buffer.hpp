@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <memory>
+#include <algorithm>
 #include "xq/utils/memory.hpp"
 #include "xq/utils/log.hpp"
 
@@ -19,24 +20,15 @@ class Buffer {
     Buffer& operator=(Buffer&&) = delete;
 
 
-    static std::atomic<int>&
-    count() {
-        static std::atomic<int> count;
-        return count;
-    }
-
-
 public:
     explicit Buffer() noexcept {
         data_ = (uint8_t*)xq::utils::malloc(cap_);
         ASSERT(data_, "xq::utils::malloc({}) failed", cap_);
-        xINFO("已创建 {} 个 Buffer", ++count());
     }
 
 
     ~Buffer() noexcept {
         xq::utils::free(data_);
-        xINFO("还有 {} 个 Buffer 未销毁", --count());
     }
 
 
@@ -60,12 +52,18 @@ public:
 
     void
     append(const uint8_t* data, uint32_t datalen) noexcept {
-        auto nleft = cap() - len();
-        if (datalen > nleft) {
-            cap_ += datalen;
-            auto tmp = (uint8_t*)xq::utils::realloc(data_, cap_);
-            ASSERT(tmp, "realloc failed");
-            data_ = tmp;
+        if (end_ + datalen > cap_) {
+            uint32_t logical_len = len();
+            if (logical_len + datalen <= cap_) {
+                ::memmove(data_, data_ + start_, logical_len);
+                start_ = 0;
+                end_ = logical_len;
+            } else {
+                cap_ = std::max(cap_ * 2, end_ + datalen);
+                auto tmp = (uint8_t*)xq::utils::realloc(data_, cap_);
+                ASSERT(tmp, "realloc failed");
+                data_ = tmp;
+            }
         }
 
         ::memcpy(data_ + end_, data, datalen);
@@ -83,6 +81,7 @@ public:
 
     void
     consume(uint32_t n) noexcept {
+        n = std::min(n, len());
         start_ += n;
         if (start_ == end_) {
             reset();

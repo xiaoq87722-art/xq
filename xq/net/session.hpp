@@ -33,7 +33,6 @@ public:
 
 
     ~Session() noexcept {
-        xINFO("{} 析构", to_string());
         release();
     }
 

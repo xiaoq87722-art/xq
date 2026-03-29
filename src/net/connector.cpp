@@ -31,7 +31,7 @@ setup_timer(xq::net::Connector* connector, xq::net::RingEvent* ev) {
         ret = ::timerfd_settime(tfd, 0, &its, nullptr);
         ASSERT(ret == 0, "timerfd_settime failed: {}, {}", errno, ::strerror(errno));
 
-        uint64_t counter = 0;
+        uint64_t* counter = new uint64_t(0);
         ev = connector->ev_pool().acquire_event();
         ev->init(xq::net::RingCommand::C_TIMER, tfd, (void*)(uintptr_t)counter);
     }
@@ -46,6 +46,8 @@ setup_timer(xq::net::Connector* connector, xq::net::RingEvent* ev) {
 static inline void
 release_timer(xq::net::Connector* connector, xq::net::RingEvent *ev) {
     ::close(ev->fd);
+    uint64_t* counter = (uint64_t*)ev->ex;
+    delete counter;
     connector->ev_pool().release_event(ev);
 }
 
@@ -60,37 +62,8 @@ xq::net::Connector::run(const std::initializer_list<const char*>& hosts) noexcep
     xq::utils::regist_signal(signal_handler, { SIGINT, SIGTERM });
 
     // Step 1, 初始化 io_uring
-    int ret = ::io_uring_queue_init(1024, &uring_, IORING_SETUP_SINGLE_ISSUER);
-    ASSERT(ret == 0, "io_uring_queue_init failed: [{}]{}", -ret, ::strerror(-ret));
+    br_ = init_io_uring_with_br(&uring_, brbufs_);
 
-    const auto BUF_COUNT = Conf::instance()->br_buf_count();
-    const auto BUF_SIZE = Conf::instance()->br_buf_size();
-    const auto BR_SIZE = BUF_COUNT * BUF_SIZE;
-
-    void* ptr = ::mmap(nullptr, BR_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
-    ASSERT(ptr != nullptr && ptr != MAP_FAILED, 
-        "::mmap(nullptr, BR_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_POPULATE, -1, 0) failed");
-
-    io_uring_buf_reg reg{
-        .ring_addr = (uint64_t)ptr,
-        .ring_entries = (uint32_t)BUF_COUNT,
-        .bgid = 1,
-        .flags = 0,
-        .resv = 0,
-    };
-
-    ret = ::io_uring_register_buf_ring(&uring_, &reg, 0);
-    ASSERT(ret == 0, "io_uring_register_buf_ring failed: [{}]{}", -ret, ::strerror(-ret));
-
-    auto br = (io_uring_buf_ring*)ptr;
-    ::io_uring_buf_ring_init(br);
-
-    for (int i = 0; i < BUF_COUNT; ++i) {
-        auto* buf = (uint8_t*)xq::utils::malloc(BUF_SIZE);
-        brbufs_.emplace_back(buf);
-        ::io_uring_buf_ring_add(br, buf, BUF_SIZE, i, ::io_uring_buf_ring_mask(BUF_COUNT), i);
-    }
-    ::io_uring_buf_ring_advance(br, BUF_COUNT);
 
     // Step 2, 设置定时器
     auto* timer = setup_timer(this, nullptr);
@@ -103,6 +76,7 @@ xq::net::Connector::run(const std::initializer_list<const char*>& hosts) noexcep
     // Step 3, IO LOOP
     uint32_t head, count;
     io_uring_cqe* cqe;
+    int ret = 0;
     state_ = STATE_RUNNING;
 
     while(1) {
@@ -161,14 +135,7 @@ xq::net::Connector::run(const std::initializer_list<const char*>& hosts) noexcep
     }
     conns_.clear();
 
-    ::io_uring_queue_exit(&uring_);
-
-    for (auto buf: brbufs_) {
-        xq::utils::free(buf);
-    }
-
-    ::free(ptr);
-    brbufs_.clear();
+    release_io_uring_with_br(&uring_, br_, brbufs_);
 
     xINFO("正常退出");
     state_ = STATE_STOPPED;
@@ -179,6 +146,8 @@ int
 xq::net::Connector::on_conn(io_uring_cqe* cqe, RingEvent* ev) {
     auto res = cqe->res;
     auto* conn = (Conn*)ev->ex;
+
+    ev_pool_.release_event(ev);
 
     if (res < 0) {
         xERROR("{} 连接失败: [{}]{}", conn->host(), -res, ::strerror(-res));
@@ -209,10 +178,20 @@ xq::net::Connector::on_recv(io_uring_cqe* cqe, RingEvent* ev) {
     if (res == 0) {
         xINFO("{} has lost connections", conn->host());
         conns_.erase(conn->host());
-        delete conn;
         ev_pool_.release_event(ev);
-
+        delete conn;
         return 0;
+    }
+
+    if (res > 0) {
+        auto bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+        auto* buf = brbufs_[bid];
+        struct io_uring_buf_ring* br = (struct io_uring_buf_ring*)br_;
+        const int BUF_SIZE = Conf::instance()->br_buf_size();
+        const int BUF_COUNT = Conf::instance()->br_buf_count();
+
+        ::io_uring_buf_ring_add(br, buf, BUF_SIZE, bid, ::io_uring_buf_ring_mask(BUF_COUNT), bid);
+        ::io_uring_buf_ring_advance(br, 1);
     }
 
     return 0;

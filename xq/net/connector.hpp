@@ -54,6 +54,8 @@ private:
 
     std::atomic<int>             state_ { STATE_STOPPED };
     io_uring                     uring_ {};
+
+    io_uring_buf_ring*           br_ { nullptr };
     std::vector<uint8_t*>        brbufs_;
     std::map<std::string, Conn*> conns_;
     RingEvent::Pool              ev_pool_;

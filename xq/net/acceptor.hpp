@@ -57,7 +57,7 @@ public:
 private:
     explicit Acceptor() noexcept {
         sess_slots_.resize(
-            std::thread::hardware_concurrency() * Conf::instance()->per_max_conn()
+            std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10
         );
     }
 
