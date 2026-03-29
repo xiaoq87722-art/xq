@@ -127,9 +127,6 @@ xq::net::Connector::run(const std::initializer_list<const char*>& hosts) noexcep
     
     release_timer(this, timer);
 
-    ret = ::io_uring_unregister_buf_ring(&uring_, 1);
-    ASSERT(ret == 0, "io_uring_unregister_buf_ring failed: {}, {}", -ret, ::strerror(-ret));
-
     for (auto& itr: conns_) {
         delete itr.second;
     }
@@ -175,8 +172,10 @@ xq::net::Connector::on_recv(io_uring_cqe* cqe, RingEvent* ev) {
     auto res = cqe->res;
     auto conn = (Conn*)ev->ex;
 
-    if (res == 0) {
-        xINFO("{} has lost connections", conn->host());
+    if (res <= 0) {
+        if (res == 0) xINFO("{} has lost connections", conn->host());
+        else xERROR("{} recv error: {}", conn->host(), ::strerror(-res));
+
         conns_.erase(conn->host());
         ev_pool_.release_event(ev);
         delete conn;

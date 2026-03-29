@@ -108,7 +108,6 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
     io_uring_cqe* cqe = nullptr;
     SOCKET cfd = INVALID_SOCKET;
     unsigned head, count;
-    const auto basefd = get_next_fd(); // 获取下一个可用的 fd, 目的是为了对 sess_slots 作映射关系
 
     // Step 6, 事件循环
     xINFO("✅ 1 acceptor 线程, {} reactor 线程 开始工作 ✅", threads.size());
@@ -132,23 +131,25 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
                 continue;
             }
 
+            if (!(cqe->flags & IORING_CQE_F_MORE)) {
+                xERROR("multishot accept stopped for {}", l->host());
+            }
+
             cfd = cqe->res;
             if (cfd < 0) {
                 xERROR("{} accept failed: {}, {}", l->host(), -cfd, ::strerror(-cfd));
                 continue;
             }
 
-            const auto idx = cfd - basefd;
-            if (idx >= sess_slots_.size()) {
-                xERROR("cfd {} out of range (basefd: {}, max: {})", cfd, basefd, sess_slots_.size());
-                ::close(cfd);
-                continue;
+            if (cfd >= sess_slots_.size()) {
+                // 动态扩容以适应更高的文件描述符
+                sess_slots_.resize(cfd + 1024, nullptr);
             }
 
-            auto* s = sess_slots_[idx];
+            auto* s = sess_slots_[cfd];
             if (!s) {
                 s = new Session;
-                sess_slots_[idx] = s;
+                sess_slots_[cfd] = s;
             }
 
             auto* r = get_reactor(reactors);

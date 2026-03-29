@@ -199,36 +199,31 @@ xq::net::Reactor::on_s_read(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
     auto sess = (Session*)ev->ex;
 
-    if (res <= 0) {
-        if (res == -ECANCELED) {
-            xINFO("服务端主动断开连接: {}", sess->to_string());
-        } else if (res == 0) {
-            xINFO("EOF: {}", sess->to_string());
-        } else {
-            xERROR("{} => [{}]{}", sess->to_string(), -res, ::strerror(-res));
-        }
+    if (res > 0) {
+        auto bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+        auto* buf = brbufs_[bid];
 
-        if (!(cqe->flags & IORING_CQE_F_MORE)) {
-            sess->release();
-            sessions_.erase(ev->fd);
-            ev_pool_.release_event(ev);
-        }
+        res = sess->send(this, buf, res);
+        sess->active_time(tnow_);
+        loaded_.fetch_add(res, std::memory_order_relaxed);
 
-        return 0;
+        const int BUF_SIZE = xq::net::Conf::instance()->br_buf_size();
+        const int BUF_COUNT = xq::net::Conf::instance()->br_buf_count();
+        ::io_uring_buf_ring_add(br_, buf, BUF_SIZE, bid, ::io_uring_buf_ring_mask(BUF_COUNT), bid);
+        ::io_uring_buf_ring_advance(br_, 1);
     }
 
-    auto bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-    auto* buf = brbufs_[bid];
+    if (res <= 0 || !(cqe->flags & IORING_CQE_F_MORE)) {
+        if (res < 0 && res != -ECANCELED) {
+            xERROR("{} => [{}]{}", sess->to_string(), -res, ::strerror(-res));
+        } else if (res == 0) {
+            xINFO("EOF: {}", sess->to_string());
+        }
 
-    res = sess->send(this, buf, res);
-    sess->active_time(tnow_);
-    loaded_ += res;
-
-    const int BUF_SIZE = xq::net::Conf::instance()->br_buf_size();
-    const int BUF_COUNT = xq::net::Conf::instance()->br_buf_count();
-    
-    ::io_uring_buf_ring_add(br_, buf, BUF_SIZE, bid, ::io_uring_buf_ring_mask(BUF_COUNT), bid);
-    ::io_uring_buf_ring_advance(br_, 1);
+        sessions_.erase(ev->fd);
+        ev_pool_.release_event(ev);
+        sess->release();
+    }
 
     return 0;
 }
@@ -251,11 +246,12 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     }
 
     wbuf->consume(res);
-    loaded_ += res;
+    loaded_.fetch_add(res, std::memory_order_relaxed);
 
     sess->sending(false);
     sess->drain_wque();
     sess->submit_send();
+
     return 0;
 }
 
