@@ -118,7 +118,7 @@ public:
      *        该函数只能在 session 所属的 reactor 线程中调用.
      */
     void
-    submit_cancel() noexcept;
+    submit_cancel(bool auto_submit = false) noexcept;
 
 
     /**
@@ -126,7 +126,7 @@ public:
      *        该函数只能在 session 所属的 reactor 线程中调用.
      */
     void
-    submit_recv() noexcept;
+    submit_recv(bool auto_submit = false) noexcept;
 
 
     /**
@@ -136,7 +136,7 @@ public:
      * @param ctr: 当前线程的 reactor 
      */
     int
-    send(Reactor* ctr, const uint8_t* data, size_t datalen) noexcept;
+    send(Reactor* ctr, const uint8_t* data, size_t datalen, bool auto_submit = false) noexcept;
 
 
     /**
@@ -144,7 +144,7 @@ public:
      *        该函数只能在 session 所属的 reactor 线程中调用.
      */
     void
-    submit_send() noexcept;
+    submit_send(bool auto_submit = false) noexcept;
 
 
     /** 

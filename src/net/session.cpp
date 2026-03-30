@@ -70,7 +70,7 @@ xq::net::Session::release() noexcept {
 
 
 void
-xq::net::Session::submit_cancel() noexcept {
+xq::net::Session::submit_cancel(bool auto_submit) noexcept {
     if (::pthread_self() != reactor_->thread_id()) {
         xFATAL("Session 在错误的线程中被调用");
     }
@@ -79,11 +79,16 @@ xq::net::Session::submit_cancel() noexcept {
     ::io_uring_prep_cancel_fd(sqe, cfd_, 0);
     ::io_uring_sqe_set_data(sqe, nullptr);
     sqe->flags |= IOSQE_CQE_SKIP_SUCCESS;
+
+    if (auto_submit) {
+        int ret = ::io_uring_submit(reactor_->uring());
+        ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
+    }
 }
 
 
 void
-xq::net::Session::submit_recv() noexcept {
+xq::net::Session::submit_recv(bool auto_submit) noexcept {
     if (::pthread_self() != reactor_->thread_id()) {
         xFATAL("Session::submit_recv 在错误的线程中被调用");
     }
@@ -95,11 +100,16 @@ xq::net::Session::submit_recv() noexcept {
     ::io_uring_prep_recv_multishot(sqe, cfd_, nullptr, 0, 0);
     sqe->flags |= IOSQE_BUFFER_SELECT;
     sqe->buf_group = 1;
+
+    if (auto_submit) {
+        int ret = ::io_uring_submit(reactor_->uring());
+        ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
+    }
 }
 
 
 int
-xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen) noexcept {
+xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool auto_submit) noexcept {
     auto tid = ::pthread_self();
     if (tid != reactor_->thread_id()) {
         ASSERT(ctr->thread_id() == tid, "参数 r 实参必需为当前 reactor 工作线程");
@@ -115,7 +125,7 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen) noexce
         if (!sending_.exchange(true)) {
             auto ev = ctr->ev_pool().acquire_event();
             ev->init(RingCommand::R_SEND, cfd_, this);
-            ctr->notify(ctr->uring(), ev);
+            ctr->notify(ctr->uring(), ev, auto_submit);
         }
 
         return 0;
@@ -123,13 +133,13 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen) noexce
 
     drain_wque();
     cwbuf_.append(data, datalen);
-    submit_send();
+    submit_send(auto_submit);
     return cwbuf_.len();
 }
 
 
 void
-xq::net::Session::submit_send() noexcept {
+xq::net::Session::submit_send(bool auto_submit) noexcept {
     ASSERT(::pthread_self() == reactor_->thread_id(), "只允许 session 的所属 reactor 线程调用 submit_send 函数");
 
     if (cwbuf_.len() == 0) {
@@ -143,6 +153,11 @@ xq::net::Session::submit_send() noexcept {
     ev->init(RingCommand::S_SEND, cfd_, this);
     ::io_uring_sqe_set_data(sqe, ev);
     ::io_uring_prep_send(sqe, cfd_, cwbuf_.data(), cwbuf_.len(), MSG_NOSIGNAL);
+
+    if (auto_submit) {
+        int ret = ::io_uring_submit(reactor_->uring());
+        ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
+    }
 }
 
 
