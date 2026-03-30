@@ -79,7 +79,7 @@ class MPSC {
 
 
         size_t
-        dequeue_bulk(T* out, size_t max_n) noexcept {
+        try_dequeue_bulk(T* out, size_t max_n) noexcept {
             size_t count = 0;
             size_t pos = dequeue_pos_;
             while (count < max_n) {
@@ -139,7 +139,7 @@ public:
 
 
     size_t
-    dequeue_bulk(T* out, size_t max_n) noexcept {
+    try_dequeue_bulk(T* out, size_t max_n) noexcept {
         size_t total = 0;
         for (size_t i = 0; i < shards_.size(); ++i) {
             total += shards_[i]->try_dequeue_bulk(out + total, max_n - total);

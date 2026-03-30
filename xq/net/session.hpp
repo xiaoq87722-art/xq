@@ -8,11 +8,6 @@
 #include <netinet/in.h>
 #include <format>
 
-#pragma push_macro("BLOCK_SIZE")
-#undef BLOCK_SIZE
-#include <concurrentqueue/moodycamel/concurrentqueue.h>
-#pragma pop_macro("BLOCK_SIZE")
-
 
 namespace xq {
 namespace net {

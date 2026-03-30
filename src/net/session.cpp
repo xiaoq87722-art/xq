@@ -34,7 +34,7 @@ xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     int n = 0;
     Buffer* bs[10];
 
-    while(n = wque_.dequeue_bulk(bs, 10), n > 0) {
+    while(n = wque_.try_dequeue_bulk(bs, 10), n > 0) {
         for (int i = 0; i < n; ++i) {
             delete bs[i];
         }
@@ -61,7 +61,7 @@ xq::net::Session::release() noexcept {
     int n = 0;
     Buffer* bs[10];
 
-    while(n = wque_.dequeue_bulk(bs, 10), n > 0) {
+    while(n = wque_.try_dequeue_bulk(bs, 10), n > 0) {
         for (int i = 0; i < n; ++i) {
             delete bs[i];
         }
@@ -107,7 +107,11 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen) noexce
 
         Buffer* wbuf = new Buffer;
         wbuf->set_data(data, datalen);
-        wque_.enqueue(std::move(wbuf));
+        if (!wque_.enqueue(std::move(wbuf))) {
+            delete wbuf;
+            xERROR("{} 发送队列已满, 发送失败", to_string());
+            return -1;
+        }
 
         if (!sending_.exchange(true)) {
             auto ev = ctr->ev_pool().acquire_event();
@@ -149,7 +153,7 @@ xq::net::Session::drain_wque() noexcept {
 
     int n = 0;
     Buffer* bs[10];
-    while (n = wque_.dequeue_bulk(bs, 10), n > 0) {
+    while (n = wque_.try_dequeue_bulk(bs, 10), n > 0) {
         for (int i = 0; i < n; ++i) {
             auto b = bs[i];
             cwbuf_.append(b->data(), b->len());
