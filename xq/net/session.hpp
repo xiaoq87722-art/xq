@@ -4,6 +4,7 @@
 
 #include "xq/net/net.in.h"
 #include "xq/net/buffer.hpp"
+#include "xq/utils/mpsc.hpp"
 #include <netinet/in.h>
 #include <format>
 
@@ -29,7 +30,7 @@ class Session {
 
 
 public:
-    explicit Session() noexcept {}
+    explicit Session() noexcept : wque_(4, 16) {}
 
 
     ~Session() noexcept {
@@ -186,7 +187,7 @@ private:
     Buffer crbuf_;
 
     /** 发送队列 */
-    moodycamel::ConcurrentQueue<Buffer*> wque_;
+    xq::utils::MPSC<Buffer*> wque_;
 
     /** 是否处理发送状态 */
     std::atomic_bool sending_ { false };
