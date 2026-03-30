@@ -79,7 +79,6 @@ xq::net::Session::submit_cancel() noexcept {
     ::io_uring_prep_cancel_fd(sqe, cfd_, 0);
     ::io_uring_sqe_set_data(sqe, nullptr);
     sqe->flags |= IOSQE_CQE_SKIP_SUCCESS;
-    xINFO("cancel fd {}", cfd_);
 }
 
 

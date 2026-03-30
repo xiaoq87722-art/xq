@@ -1,6 +1,7 @@
 #ifndef __XQ_UTILS_MPSC_HPP__
 #define __XQ_UTILS_MPSC_HPP__
 
+
 #include <atomic>
 #include <cstddef>
 #include <new>
@@ -9,9 +10,12 @@
 #include <vector>
 #include <memory>
 #include <thread>
+#include "xq/utils/memory.hpp"
+
 
 namespace xq {
 namespace utils {
+
 
 template<typename T>
 class MPSC {
@@ -25,7 +29,7 @@ class MPSC {
 
         explicit SingleQueue(size_t size) noexcept
             : size_(size), mask_(size - 1),
-              buffer_(static_cast<Cell*>(::operator new[](sizeof(Cell) * size))) {
+              buffer_((Cell*)xq::utils::malloc(sizeof(Cell) * size)) {
             for (size_t i = 0; i < size_; ++i) {
                 new (&buffer_[i]) Cell();
                 buffer_[i].seq.store(i, std::memory_order_relaxed);
@@ -38,7 +42,7 @@ class MPSC {
 
         ~SingleQueue() noexcept {
             for (size_t i = 0; i < size_; ++i) buffer_[i].~Cell();
-            ::operator delete[](buffer_);
+            xq::utils::free(buffer_);
         }
 
 
@@ -150,6 +154,7 @@ public:
 
         return total;
     }
+
 
 private:
     const size_t shard_mask_;
