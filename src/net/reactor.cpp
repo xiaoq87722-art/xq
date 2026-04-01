@@ -1,4 +1,5 @@
 #include "xq/net/reactor.hpp"
+#include "xq/net/listener.hpp"
 #include "xq/net/conf.hpp"
 #include "xq/utils/time.hpp"
 #include "xq/utils/memory.hpp"
@@ -216,27 +217,20 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
     if (res > 0) {
         // 正常读取到数据的情况
-        auto bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-        auto* buf = brbufs_[bid];
+        auto bid = (uint16_t)(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
+        auto buf = brbufs_[bid];
 
         ASSERT(sess->send(this, buf, res) >= 0, "{} send failed", sess->to_string());
         sess->set_active_time(tnow_);
         loaded_.fetch_add(res, std::memory_order_relaxed);
 
-        static const int BUF_SIZE = xq::net::Conf::instance()->br_buf_size();
-        static const int BUF_COUNT = xq::net::Conf::instance()->br_buf_count();
-
-        ::io_uring_buf_ring_add(br_, buf, BUF_SIZE, bid, ::io_uring_buf_ring_mask(BUF_COUNT), bid);
-        ::io_uring_buf_ring_advance(br_, 1);
+        recycle_buf_ring(br_, buf, bid);
 
         if (!(cqe->flags & IORING_CQE_F_MORE)) {
-            // multishot recv 失效的情况
-            RingEvent::destroy(ev);
-
             if (sess->valid()) {
-                // 如果连接还有效
-                sess->submit_recv();
+                sess->submit_recv(false, ev);
             } else {
+                RingEvent::destroy(ev);
                 sessions_.erase(sess->fd());
                 sess->release();
             }
@@ -251,8 +245,10 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
                 xFATAL("内核内存不足");
             } else if (res == -EINVAL) {
                 xFATAL("不支持 multishot 的旧版本内核上运行");
-            } else if (res != -ECANCELED) {
-                xERROR("{} 未捕获的错误 => [{}]{}", sess->to_string(), -res, ::strerror(-res));
+            } else if (res == -ECANCELED) {
+                xINFO("服务端 {} 主动断开连接 {}", sess->listener()->to_string(), sess->to_string());
+            } else {
+                xERROR("{} recv error: [{}]{}", sess->to_string(), -res, ::strerror(-res));
             }
         } else {
             xINFO("EOF: {}", sess->to_string());
@@ -273,13 +269,13 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
     do {
         auto it = sessions_.find(ev->fd);
-        if (it == sessions_.end() || it->second != sess) {
+        if (it == sessions_.end() || it->second != sess || ev->gen != sess->gen()) {
             break;
         }
 
         if (res < 0) {
             xERROR("{} write failed: [{}]{}", sess->remote_addr(), -res, ::strerror(-res));
-            sess->set_sending(false);
+            sess->submit_cancel();
             break;
         }
 
@@ -288,9 +284,9 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
             loaded_.fetch_add(res, std::memory_order_relaxed);
         }
 
-        sess->set_sending(false);
-        sess->drain_wque();
-        sess->submit_send();
+        if (sess->drain_wque()) {
+            sess->submit_send();
+        }
     } while(0);
 
     RingEvent::destroy(ev);
@@ -302,8 +298,9 @@ xq::net::Reactor::on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
     auto sess = (Session*)ev->ex;
 
-    if (sessions_.find(ev->fd) != sessions_.end()) {
-        sess->drain_wque();
+    auto it = sessions_.find(ev->fd);
+    // 同样需要严格校验指针和世代号
+    if (it != sessions_.end() && it->second == sess && ev->gen == sess->gen() && sess->drain_wque()) {
         sess->submit_send();
     }
 

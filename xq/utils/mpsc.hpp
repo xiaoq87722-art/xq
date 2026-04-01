@@ -93,7 +93,9 @@ class MPSC {
                     out[count++] = std::move(cell->data);
                     cell->seq.store(pos + size_, std::memory_order_release);
                     ++pos;
-                } else { break; }
+                } else { 
+                    break; 
+                }
             }
 
             dequeue_pos_ = pos;

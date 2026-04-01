@@ -175,14 +175,10 @@ xq::net::Connector::on_recv(io_uring_cqe* cqe, RingEvent* ev) {
     bool should_cleanup = (res <= 0);
     
     if (res > 0) {
-        auto bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-        auto* buf = brbufs_[bid];
-        struct io_uring_buf_ring* br = (struct io_uring_buf_ring*)br_;
-        const int BUF_SIZE = Conf::instance()->br_buf_size();
-        const int BUF_COUNT = Conf::instance()->br_buf_count();
-
-        ::io_uring_buf_ring_add(br, buf, BUF_SIZE, bid, ::io_uring_buf_ring_mask(BUF_COUNT), bid);
-        ::io_uring_buf_ring_advance(br, 1);
+        auto bid = (uint16_t)(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
+        auto buf = brbufs_[bid];
+        
+        recycle_buf_ring(br_, buf, bid);
 
         if (!(cqe->flags & IORING_CQE_F_MORE)) {
             should_cleanup = true;

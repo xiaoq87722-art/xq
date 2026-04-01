@@ -20,6 +20,10 @@ class Buffer {
     Buffer& operator=(Buffer&&) = delete;
 
 
+    static constexpr uint32_t THRESHOLD_SIZE = 1024 * 1024 * 2;
+    static constexpr uint32_t DEFFAULT_SIZE = 1024 * 2;
+
+
 public:
     explicit Buffer() noexcept {
         data_ = (uint8_t*)xq::utils::malloc(cap_);
@@ -74,6 +78,11 @@ public:
 
     void
     reset() noexcept {
+        if (cap_ >= THRESHOLD_SIZE) {
+            cap_ = DEFFAULT_SIZE;
+            xq::utils::free(data_);
+            data_ = (uint8_t*)xq::utils::malloc(cap_);
+        }
         start_ = end_ = 0;
     }
 
@@ -89,7 +98,7 @@ private:
     uint32_t end_ { 0 };
 
     /** data_ 总大小 */
-    uint32_t cap_ { 1024 };
+    uint32_t cap_ { DEFFAULT_SIZE };
 }; // class Buffer;
 
     

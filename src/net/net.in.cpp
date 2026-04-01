@@ -97,11 +97,16 @@ xq::net::init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*> &brbufs) n
     ASSERT(ret == 0, "io_uring_queue_init failed: {}, {}", -ret, ::strerror(-ret));
 
     const auto BUF_COUNT = Conf::instance()->br_buf_count();
+    // 必须是2的幂次方校验
+    ASSERT(BUF_COUNT > 0 && (BUF_COUNT & (BUF_COUNT - 1)) == 0, 
+        "br_buf_count 必须是 2 的幂次方 (如 16, 32, 64)");
+
     const auto BUF_SIZE = Conf::instance()->br_buf_size();
-    const auto BR_SIZE = BUF_COUNT * BUF_SIZE;
+    const auto BR_SIZE = sizeof(io_uring_buf) * BUF_COUNT;
+    const auto TOTAL_SIZE = BUF_COUNT * BUF_SIZE + BR_SIZE;
 
     // 申请 10MB+ 的缓冲区时, 应该使用 ::mmap 申请内存页, posix_memalign 适合小缓冲区的场景
-    void* ptr = ::mmap(nullptr, BR_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
+    void* ptr = ::mmap(nullptr, TOTAL_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
     ASSERT(ptr && ptr != MAP_FAILED, 
         "::mmap(nullptr, BR_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_POPULATE, -1, 0) failed");
 
@@ -120,9 +125,10 @@ xq::net::init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*> &brbufs) n
     ::io_uring_buf_ring_init(br);
 
     for (int i = 0; i < BUF_COUNT; ++i) {
-        auto* buf = (uint8_t*)xq::utils::malloc(BUF_SIZE);
+        auto buf = (uint8_t*)ptr + BR_SIZE + (i * BUF_SIZE);
         brbufs.emplace_back(buf);
-        ::io_uring_buf_ring_add(br, buf, BUF_SIZE, i, ::io_uring_buf_ring_mask(BUF_COUNT), i);
+        // 初始化时，按照索引 i 放入对应的 slot
+        ::io_uring_buf_ring_add(br, buf, BUF_SIZE, (uint16_t)i, ::io_uring_buf_ring_mask(BUF_COUNT), i);
     }
     ::io_uring_buf_ring_advance(br, BUF_COUNT);
 
@@ -132,17 +138,26 @@ xq::net::init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*> &brbufs) n
 
 void
 xq::net::release_io_uring_with_br(io_uring* uring, io_uring_buf_ring* br, std::vector<uint8_t*>& brbufs) noexcept {
-    const auto BR_SIZE = Conf::instance()->br_buf_count() * Conf::instance()->br_buf_size();
+    const auto BUF_COUNT = Conf::instance()->br_buf_count();
+    const auto BUF_SIZE = Conf::instance()->br_buf_size();
+    const auto BR_SIZE = sizeof(io_uring_buf) * BUF_COUNT;
+    const auto TOTAL_SIZE = BUF_COUNT * BUF_SIZE + BR_SIZE;
 
     int ret = ::io_uring_unregister_buf_ring(uring, 1);
     ASSERT(ret == 0, "io_uring_unregister_buf_ring failed: [{}] {}", -ret, ::strerror(-ret));
     
     ::io_uring_queue_exit(uring);
 
-    for (auto buf: brbufs) {
-        xq::utils::free(buf);
-    }
-
-    ASSERT(!::munmap(br, BR_SIZE), "[{}] {}", errno, ::strerror(errno));
+    ASSERT(!::munmap(br, TOTAL_SIZE), "[{}] {}", errno, ::strerror(errno));
     brbufs.clear();
+}
+
+
+void
+xq::net::recycle_buf_ring(io_uring_buf_ring* br, uint8_t* buf, uint16_t bid) noexcept {
+    static const int BUF_SIZE = xq::net::Conf::instance()->br_buf_size();
+    static const int BUF_COUNT = xq::net::Conf::instance()->br_buf_count();
+
+    ::io_uring_buf_ring_add(br, buf, BUF_SIZE, (uint16_t)bid, ::io_uring_buf_ring_mask(BUF_COUNT), 0);
+    ::io_uring_buf_ring_advance(br, 1);
 }

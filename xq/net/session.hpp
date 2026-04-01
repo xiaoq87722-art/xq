@@ -137,7 +137,7 @@ public:
      *        该函数只能在 session 所属的 reactor 线程中调用.
      */
     void
-    submit_recv(bool auto_submit = false) noexcept;
+    submit_recv(bool auto_submit = false, RingEvent* ev = nullptr)noexcept;
 
 
     /**
@@ -161,7 +161,7 @@ public:
     /** 
      * @brief 将 session 发送队列(wque_) 中的数据移交到 cwbuf_ 中.
      */
-    void
+    uint32_t
     drain_wque() noexcept;
 
 

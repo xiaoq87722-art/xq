@@ -89,14 +89,17 @@ xq::net::Session::submit_cancel(bool auto_submit) noexcept {
 
 
 void
-xq::net::Session::submit_recv(bool auto_submit) noexcept {
+xq::net::Session::submit_recv(bool auto_submit, RingEvent* ev) noexcept {
     if (::pthread_self() != reactor_->thread_id()) {
         xFATAL("Session::submit_recv 在错误的线程中被调用");
     }
 
     auto* sqe = acquire_sqe(reactor_->uring());
-    auto ev = RingEvent::create();
-    ev->init(xq::net::RingCommand::S_RECV, cfd_, this, generation_);
+    if (!ev) {
+        ev = RingEvent::create();
+        ev->init(xq::net::RingCommand::S_RECV, cfd_, this, generation_);
+    }
+
     ::io_uring_sqe_set_data(sqe, ev);
     ::io_uring_prep_recv_multishot(sqe, cfd_, nullptr, 0, 0);
     sqe->flags |= IOSQE_BUFFER_SELECT;
@@ -132,12 +135,21 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool a
         return 0;
     }
 
+    if (sending_.exchange(true, std::memory_order_acq_rel)) {
+        Buffer* wbuf = new Buffer;
+        wbuf->set_data(data, datalen);
+        if (!wque_.enqueue(std::move(wbuf))) {
+            delete wbuf;
+            xERROR("{} 发送队列已满, 发送失败", to_string());
+            return -1;
+        }
+
+        return 0;
+    }
+
     drain_wque();
     cwbuf_.append(data, datalen);
-
-    if (!sending_.exchange(true)) {
-        submit_send(auto_submit);
-    }
+    submit_send(auto_submit);
 
     return cwbuf_.len();
 }
@@ -148,11 +160,18 @@ xq::net::Session::submit_send(bool auto_submit) noexcept {
     ASSERT(::pthread_self() == reactor_->thread_id(), "只允许 session 的所属 reactor 线程调用 submit_send 函数");
 
     if (cwbuf_.len() == 0) {
-        sending_ = false;
-        return;
+        sending_.store(false, std::memory_order_release);
+        // 双重检查：如果释放锁后发现又有新数据入队
+        if (drain_wque() > 0) {
+            // 尝试重新夺回发送权，如果抢占失败（说明业务线程已经抢先并发送了 R_SEND），则退出
+            if (sending_.exchange(true, std::memory_order_acquire)) {
+                return;
+            }
+        } else {
+            return;
+        }
     }
 
-    sending_ = true;
     auto* sqe = acquire_sqe(reactor_->uring());
     auto ev = RingEvent::create();
     ev->init(RingCommand::S_SEND, cfd_, this, generation_);
@@ -166,11 +185,11 @@ xq::net::Session::submit_send(bool auto_submit) noexcept {
 }
 
 
-void
+uint32_t
 xq::net::Session::drain_wque() noexcept {
     ASSERT(::pthread_self() == reactor_->thread_id(), "drain_wque 只能在 session 所属的 reactor 线程中调用");
 
-    int n = 0;
+    int n;
     Buffer* bs[10];
     while (n = wque_.try_dequeue_bulk(bs, 10), n > 0) {
         for (int i = 0; i < n; ++i) {
@@ -179,4 +198,6 @@ xq::net::Session::drain_wque() noexcept {
             delete b;
         }
     }
+
+    return cwbuf_.len();
 }

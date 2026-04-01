@@ -186,6 +186,10 @@ void
 release_io_uring_with_br(io_uring* uring, io_uring_buf_ring* ptr, std::vector<uint8_t*>& brbufs) noexcept;
 
 
+void
+recycle_buf_ring(io_uring_buf_ring* br, uint8_t* buf, uint16_t bid) noexcept;
+
+
 } // namespace net
 } // namespace xq
 
