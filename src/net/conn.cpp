@@ -62,7 +62,7 @@ xq::net::Conn::submit_connect(const std::string& host) noexcept {
     }
 
     auto* sqe = acquire_sqe(connector_->uring());
-    auto* ev = connector_->ev_pool().acquire_event();
+    auto* ev = RingEvent::create();
     ev->init(RingCommand::C_CONN, cfd_, this);
  
     ::memcpy(&raddr_, result->ai_addr, result->ai_addrlen);
@@ -77,7 +77,7 @@ xq::net::Conn::submit_connect(const std::string& host) noexcept {
 void
 xq::net::Conn::submit_recv() noexcept {
     auto* sqe = acquire_sqe(connector_->uring());
-    auto* ev = connector_->ev_pool().acquire_event();
+    auto* ev = RingEvent::create();
     ev->init(xq::net::RingCommand::C_RECV, cfd_, this);
     ::io_uring_sqe_set_data(sqe, ev);
     ::io_uring_prep_recv_multishot(sqe, cfd_, nullptr, 0, 0);

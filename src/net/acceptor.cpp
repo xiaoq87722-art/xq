@@ -153,7 +153,7 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
             auto r = get_reactor(reactors);
             s->init(cfd, l, r);
 
-            auto ev = r->ev_pool().acquire_event();
+            auto ev = RingEvent::create();
             ev->init(RingCommand::R_ACCEPT, cfd, s);
             r->notify(&uring_, ev);
         }
@@ -172,7 +172,7 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
 
     // Step 7, 停止 reactor 线程
     for (auto& r: reactors) {
-        auto ev = r->ev_pool().acquire_event();
+        auto ev = RingEvent::create();
         ev->init(RingCommand::R_STOP);
         r->notify(&uring_, ev, true);
     }

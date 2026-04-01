@@ -32,7 +32,7 @@ setup_timer(xq::net::Reactor* reactor, xq::net::RingEvent* ev) {
         ASSERT(!::timerfd_settime(tfd, 0, &its, nullptr), "[{}] {}", errno, ::strerror(errno));
 
         uint64_t* counter = new uint64_t(0);
-        ev = reactor->ev_pool().acquire_event();
+        ev = xq::net::RingEvent::create();
         ev->init(xq::net::RingCommand::R_TIMER, tfd, (void*)(uintptr_t)counter);
     }
 
@@ -48,7 +48,7 @@ release_timer(xq::net::Reactor* reactor, xq::net::RingEvent *ev) {
     ::close(ev->fd);
     uint64_t* counter = (uint64_t*)ev->ex;
     delete counter;
-    reactor->ev_pool().release_event(ev);
+    xq::net::RingEvent::destroy(ev);
 }
 
 
@@ -167,7 +167,7 @@ xq::net::Reactor::run() noexcept {
 
 void
 xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
-    ev_pool_.release_event(ev);
+    RingEvent::destroy(ev);
 }
 
 
@@ -176,7 +176,7 @@ xq::net::Reactor::on_r_accept(io_uring_cqe*, RingEvent* ev) noexcept {
     Session* s = (Session*)ev->ex;
     sessions_.insert(std::make_pair(ev->fd, s));
     s->submit_recv();
-    ev_pool_.release_event(ev);
+    RingEvent::destroy(ev);
 }
 
 
@@ -209,7 +209,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     if (it == sessions_.end() || it->second != sess || ev->gen != sess->gen()) {
         // 如果世代号不匹配，说明是上一个连接遗留的延迟 CQE
         if (!(cqe->flags & IORING_CQE_F_MORE)) {
-            ev_pool_.release_event(ev);
+            RingEvent::destroy(ev);
         }
         return;
     }
@@ -219,11 +219,9 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         auto bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
         auto* buf = brbufs_[bid];
 
-        int n = sess->send(this, buf, res);
+        ASSERT(sess->send(this, buf, res) >= 0, "{} send failed", sess->to_string());
         sess->set_active_time(tnow_);
-        if (n > 0) {
-            loaded_.fetch_add(n, std::memory_order_relaxed);
-        }
+        loaded_.fetch_add(res, std::memory_order_relaxed);
 
         static const int BUF_SIZE = xq::net::Conf::instance()->br_buf_size();
         static const int BUF_COUNT = xq::net::Conf::instance()->br_buf_count();
@@ -233,7 +231,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
         if (!(cqe->flags & IORING_CQE_F_MORE)) {
             // multishot recv 失效的情况
-            ev_pool_.release_event(ev);
+            RingEvent::destroy(ev);
 
             if (sess->valid()) {
                 // 如果连接还有效
@@ -261,7 +259,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         }
 
         sessions_.erase(ev->fd);
-        ev_pool_.release_event(ev);
+        RingEvent::destroy(ev);
         sess->release();
     }
 }
@@ -295,7 +293,7 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         sess->submit_send();
     } while(0);
 
-    ev_pool_.release_event(ev);
+    RingEvent::destroy(ev);
 }
 
 
@@ -309,5 +307,5 @@ xq::net::Reactor::on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         sess->submit_send();
     }
 
-    ev_pool_.release_event(ev);
+    RingEvent::destroy(ev);
 }

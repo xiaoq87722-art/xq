@@ -61,12 +61,6 @@ public:
     }
 
 
-    RingEvent::Pool&
-    ev_pool() noexcept {
-        return ev_pool_;
-    }
-
-
     /**
      * @brief 通知 Reactor 对象 RingEvent. 当前 Reactor/Acceptor 线程1 通知 Reactor 线程2
      * 
@@ -125,8 +119,6 @@ private:
     /** buf ring 缓冲区 */
     io_uring_buf_ring* br_ { nullptr };
     std::vector<uint8_t*> brbufs_;
-
-    RingEvent::Pool ev_pool_;
 }; // class Reactor;
 
 

@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include "xq/utils/memory.hpp"
 
 
 typedef int SOCKET;
@@ -38,8 +39,26 @@ enum class RingCommand {
 };
 
 
+/**
+ * @brief io_uring 传递事件
+ *   该结构体很小, 所以没必要用到lockfree-threadsafe 的对象池, 直接使用 mi_malloc 性能更好
+ */
 struct RingEvent {
-    RingEvent() noexcept {}
+    static RingEvent*
+    create() noexcept {
+        auto p = xq::utils::malloc(sizeof(RingEvent));
+        return new(p) RingEvent;
+    }
+
+
+    static void
+    destroy(RingEvent* p) noexcept {
+        if (p) {
+            p->~RingEvent();
+            xq::utils::free(p);
+        }
+    }
+
     ~RingEvent() noexcept {}
 
     RingEvent(const RingEvent&) = delete;
@@ -69,32 +88,8 @@ struct RingEvent {
     /** 世代号 */
     uint64_t gen { 0 };
 
-    /** 内部链表指针 */
-    RingEvent* next { nullptr };
-
-
-    struct Pool {
-        Pool() noexcept {}
-        ~Pool() noexcept;
-
-
-        Pool(const Pool&) = delete;
-        Pool(Pool&&) = delete;
-        Pool& operator=(const Pool&) = delete;
-        Pool& operator=(Pool&&) = delete;
-
-
-        RingEvent*
-        acquire_event() noexcept;
-
-
-        void
-        release_event(RingEvent* ev) noexcept;
-
-
-    private:
-        std::atomic<RingEvent*> pool_head_ { nullptr };
-    };
+private:
+    RingEvent() noexcept {}
 };
 
 

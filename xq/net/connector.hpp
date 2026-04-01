@@ -38,11 +38,6 @@ public:
     }
 
 
-    RingEvent::Pool& ev_pool() noexcept {
-        return ev_pool_;
-    }
-
-
 private:
     explicit Connector() {}
 
@@ -58,7 +53,6 @@ private:
     io_uring_buf_ring*           br_ { nullptr };
     std::vector<uint8_t*>        brbufs_;
     std::map<std::string, Conn*> conns_;
-    RingEvent::Pool              ev_pool_;
 }; // class Connector;
 
 

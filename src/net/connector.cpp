@@ -32,7 +32,7 @@ setup_timer(xq::net::Connector* connector, xq::net::RingEvent* ev) {
         ASSERT(ret == 0, "timerfd_settime failed: {}, {}", errno, ::strerror(errno));
 
         uint64_t* counter = new uint64_t(0);
-        ev = connector->ev_pool().acquire_event();
+        ev = xq::net::RingEvent::create();
         ev->init(xq::net::RingCommand::C_TIMER, tfd, (void*)(uintptr_t)counter);
     }
 
@@ -48,7 +48,7 @@ release_timer(xq::net::Connector* connector, xq::net::RingEvent *ev) {
     ::close(ev->fd);
     uint64_t* counter = (uint64_t*)ev->ex;
     delete counter;
-    connector->ev_pool().release_event(ev);
+    xq::net::RingEvent::destroy(ev);
 }
 
 
@@ -144,7 +144,7 @@ xq::net::Connector::on_conn(io_uring_cqe* cqe, RingEvent* ev) {
     auto res = cqe->res;
     auto* conn = (Conn*)ev->ex;
 
-    ev_pool_.release_event(ev);
+    RingEvent::destroy(ev);
 
     if (res < 0) {
         xERROR("{} 连接失败: [{}]{}", conn->host(), -res, ::strerror(-res));
@@ -194,7 +194,7 @@ xq::net::Connector::on_recv(io_uring_cqe* cqe, RingEvent* ev) {
         else if (res < 0) xERROR("{} recv error: {}", conn->host(), ::strerror(-res));
 
         conns_.erase(conn->host());
-        ev_pool_.release_event(ev);
+        RingEvent::destroy(ev);
         delete conn;
     }
 
