@@ -47,6 +47,12 @@ public:
     }
 
 
+    Session*
+    get_session(SOCKET fd) noexcept {
+        return sslots_[fd];
+    }
+    
+
     void
     run(const std::initializer_list<const char*>& endpoints) noexcept;
 

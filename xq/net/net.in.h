@@ -165,11 +165,11 @@ sockaddr_to_string(const sockaddr* addr) noexcept {
     if (addr->sa_family == AF_INET) {
         auto* v4 = (const sockaddr_in*)addr;
         ::inet_ntop(AF_INET, &v4->sin_addr, ip, sizeof(ip));
-        port = ntohs(v4->sin_port);
+        port = ::ntohs(v4->sin_port);
     } else if (addr->sa_family == AF_INET6) {
         auto* v6 = (const sockaddr_in6*)addr;
         ::inet_ntop(AF_INET6, &v6->sin6_addr, ip, sizeof(ip));
-        port = ntohs(v6->sin6_port);
+        port = ::ntohs(v6->sin6_port);
     } else {
         return "";
     }

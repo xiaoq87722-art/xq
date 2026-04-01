@@ -1,5 +1,6 @@
 #include "xq/net/reactor.hpp"
 #include "xq/net/listener.hpp"
+#include "xq/net/acceptor.hpp"
 #include "xq/net/conf.hpp"
 #include "xq/utils/time.hpp"
 #include "xq/utils/memory.hpp"
@@ -55,8 +56,6 @@ release_timer(xq::net::Reactor* reactor, xq::net::RingEvent *ev) {
 
 void
 xq::net::Reactor::notify(io_uring* ct_uring, xq::net::RingEvent* ev, bool auto_submit) noexcept {
-    ASSERT(ct_uring->ring_fd != uring_.ring_fd, "当前线程正在向当前reactor 发送通知");
-
     auto* sqe = acquire_sqe(ct_uring);
     ::io_uring_prep_msg_ring(sqe, uring_.ring_fd, 0, (uint64_t)(uintptr_t)ev, 0);
     sqe->flags |= IOSQE_CQE_SKIP_SUCCESS;
@@ -220,7 +219,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         auto bid = (uint16_t)(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
         auto buf = brbufs_[bid];
 
-        ASSERT(sess->send(this, buf, res) >= 0, "{} send failed", sess->to_string());
+        sess->send(this, buf, res);
         sess->set_active_time(tnow_);
         loaded_.fetch_add(res, std::memory_order_relaxed);
 
@@ -264,43 +263,33 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 void
 xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
-    auto sess = (Session*)ev->ex;
-    auto wbuf = sess->current_wbuf();
+    auto wbuf = (Buffer*)ev->ex;
 
-    do {
-        auto it = sessions_.find(ev->fd);
-        if (it == sessions_.end() || it->second != sess || ev->gen != sess->gen()) {
-            break;
-        }
-
-        if (res < 0) {
-            xERROR("{} write failed: [{}]{}", sess->remote_addr(), -res, ::strerror(-res));
-            sess->submit_cancel();
-            break;
-        }
-
-        if (res > 0) {
+    auto it = sessions_.find(ev->fd);
+    if (it != sessions_.end() && it->second->gen() == ev->gen) {
+        auto* sess = it->second;
+        if (res >= 0) {
             wbuf->consume(res);
             loaded_.fetch_add(res, std::memory_order_relaxed);
+            sess->submit_send(ev);
+            return; 
+        } else if (res != -ECANCELED) {
+            xERROR("{} send failed: [{}]{}", sess->to_string(), -res, ::strerror(-res));
+            sess->submit_cancel();
         }
+    }
 
-        if (sess->drain_wque()) {
-            sess->submit_send();
-        }
-    } while(0);
-
+    delete wbuf;
     RingEvent::destroy(ev);
 }
 
 
 void
-xq::net::Reactor::on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
-    auto res = cqe->res;
+xq::net::Reactor::on_r_send(io_uring_cqe*, RingEvent* ev) noexcept {
     auto sess = (Session*)ev->ex;
 
     auto it = sessions_.find(ev->fd);
-    // 同样需要严格校验指针和世代号
-    if (it != sessions_.end() && it->second == sess && ev->gen == sess->gen() && sess->drain_wque()) {
+    if (it != sessions_.end() && it->second == sess && ev->gen == sess->gen()) {
         sess->submit_send();
     }
 

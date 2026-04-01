@@ -76,12 +76,6 @@ public:
     }
 
 
-    Buffer*
-    current_wbuf() noexcept {
-        return &cwbuf_;
-    }
-
-
     std::string
     to_string() const {
         return std::format("[{}]{}", cfd_, remote_);
@@ -118,9 +112,9 @@ public:
     }
 
 
-    void
-    set_sending(bool v) noexcept {
-        sending_ = v;
+    std::atomic_bool&
+    sending() noexcept {
+        return sending_;
     }
 
 
@@ -155,14 +149,7 @@ public:
      *        该函数只能在 session 所属的 reactor 线程中调用.
      */
     void
-    submit_send(bool auto_submit = false) noexcept;
-
-
-    /** 
-     * @brief 将 session 发送队列(wque_) 中的数据移交到 cwbuf_ 中.
-     */
-    uint32_t
-    drain_wque() noexcept;
+    submit_send(RingEvent* ev = nullptr, bool auto_submit = false) noexcept;
 
 
 private:
@@ -188,12 +175,6 @@ private:
 
     /** 世代号 */
     uint64_t generation_ { 0 };
-
-    /** 当前发送缓冲区 current write buffer */
-    Buffer cwbuf_;
-
-    /** 当前接收缓冲区 current read buffer */
-    Buffer crbuf_;
 
     /** 发送队列 */
     xq::utils::MPSC<Buffer*> wque_;

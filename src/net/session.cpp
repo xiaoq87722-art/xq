@@ -41,10 +41,7 @@ xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
         }
     }
 
-    sending_ = false;
-    cwbuf_.reset();
-    crbuf_.reset();
-
+    sending_.store(false, std::memory_order_release);
     xINFO("{} 连接成功", to_string());
 }
 
@@ -114,90 +111,62 @@ xq::net::Session::submit_recv(bool auto_submit, RingEvent* ev) noexcept {
 
 int
 xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool auto_submit) noexcept {
-    auto tid = ::pthread_self();
-    if (tid != reactor_->thread_id()) {
-        ASSERT(ctr->thread_id() == tid, "参数 r 实参必需为当前 reactor 工作线程");
-
-        Buffer* wbuf = new Buffer;
-        wbuf->set_data(data, datalen);
-        if (!wque_.enqueue(std::move(wbuf))) {
-            delete wbuf;
-            xERROR("{} 发送队列已满, 发送失败", to_string());
-            return -1;
-        }
-
-        if (!sending_.exchange(true)) {
-            auto ev = RingEvent::create();
-            ev->init(RingCommand::R_SEND, cfd_, this, generation_);
-            ctr->notify(ctr->uring(), ev, auto_submit);
-        }
-
-        return 0;
+    Buffer* wbuf = new Buffer;
+    wbuf->set_data(data, datalen);
+    if (!wque_.enqueue(std::move(wbuf))) {
+        delete wbuf;
+        xERROR("{} 发送队列已满, 发送失败", to_string());
+        return -1;
     }
 
-    if (sending_.exchange(true, std::memory_order_acq_rel)) {
-        Buffer* wbuf = new Buffer;
-        wbuf->set_data(data, datalen);
-        if (!wque_.enqueue(std::move(wbuf))) {
-            delete wbuf;
-            xERROR("{} 发送队列已满, 发送失败", to_string());
-            return -1;
-        }
-
-        return 0;
+    if (!sending_.exchange(true)) {
+        auto ev = RingEvent::create();
+        ev->init(RingCommand::R_SEND, cfd_, this, generation_);
+        ctr->notify(ctr->uring(), ev, auto_submit);
     }
 
-    drain_wque();
-    cwbuf_.append(data, datalen);
-    submit_send(auto_submit);
-
-    return cwbuf_.len();
+    return 0;
 }
 
 
 void
-xq::net::Session::submit_send(bool auto_submit) noexcept {
+xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
     ASSERT(::pthread_self() == reactor_->thread_id(), "只允许 session 的所属 reactor 线程调用 submit_send 函数");
-
-    if (cwbuf_.len() == 0) {
-        sending_.store(false, std::memory_order_release);
-        // 双重检查：如果释放锁后发现又有新数据入队
-        if (drain_wque() > 0) {
-            // 尝试重新夺回发送权，如果抢占失败（说明业务线程已经抢先并发送了 R_SEND），则退出
-            if (sending_.exchange(true, std::memory_order_acquire)) {
-                return;
-            }
-        } else {
-            return;
-        }
-    }
-
-    auto* sqe = acquire_sqe(reactor_->uring());
-    auto ev = RingEvent::create();
-    ev->init(RingCommand::S_SEND, cfd_, this, generation_);
-    ::io_uring_sqe_set_data(sqe, ev);
-    ::io_uring_prep_send(sqe, cfd_, cwbuf_.data(), cwbuf_.len(), MSG_NOSIGNAL);
-
-    if (auto_submit) {
-        int ret = ::io_uring_submit(reactor_->uring());
-        ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
-    }
-}
-
-
-uint32_t
-xq::net::Session::drain_wque() noexcept {
-    ASSERT(::pthread_self() == reactor_->thread_id(), "drain_wque 只能在 session 所属的 reactor 线程中调用");
+    
+    Buffer* wbuf = ev ? (Buffer*)ev->ex : new Buffer;
 
     int n;
     Buffer* bs[10];
     while (n = wque_.try_dequeue_bulk(bs, 10), n > 0) {
         for (int i = 0; i < n; ++i) {
-            auto b = bs[i];
-            cwbuf_.append(b->data(), b->len());
-            delete b;
+            auto& b = bs[i];
+            wbuf->append(b->data(), b->len());
+            delete bs[i];
         }
     }
 
-    return cwbuf_.len();
+    // 如果没有任何数据需要发送
+    if (wbuf->len() == 0) {
+        delete wbuf;
+        if (ev) {
+            RingEvent::destroy(ev);
+        }
+        sending_.store(false, std::memory_order_release);
+        return;
+    }
+
+    // 确保有对应的 Event 对象
+    if (!ev) {
+        ev = RingEvent::create();
+        ev->init(RingCommand::S_SEND, cfd_, wbuf, generation_);
+    }
+
+    auto* sqe = acquire_sqe(reactor_->uring());
+    ::io_uring_sqe_set_data(sqe, ev);
+    ::io_uring_prep_send(sqe, cfd_, wbuf->data(), wbuf->len(), MSG_NOSIGNAL);
+
+    if (auto_submit) {
+        int ret = ::io_uring_submit(reactor_->uring());
+        ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
+    }
 }
