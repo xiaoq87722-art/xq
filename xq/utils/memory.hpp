@@ -1,8 +1,7 @@
 #ifndef __XQ_UTILS_MEMORY_HPP__
 #define __XQ_UTILS_MEMORY_HPP__
 
-
-#include "mimalloc-3.2/mimalloc.h"
+#include <mimalloc.h>
 
 
 namespace xq {

@@ -22,9 +22,14 @@ class Reactor {
 
 
 public:
-    explicit Reactor() noexcept {}
+    typedef Reactor* Ptr;
 
-    
+
+    static Ptr create() noexcept {
+        return new Reactor;
+    }
+
+
     ~Reactor() noexcept {}
 
 
@@ -72,12 +77,32 @@ public:
 
 
 private:
-    void on_s_accept(io_uring_cqe* cqe, RingEvent* ev) noexcept;
-    void on_s_read(io_uring_cqe* cqe, RingEvent* ev) noexcept;
-    void on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept;
-    void on_r_stop(io_uring_cqe* cqe, RingEvent* ev) noexcept;
-    void on_r_timer(io_uring_cqe* cqe, RingEvent* ev) noexcept;
-    void on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept;
+    explicit Reactor() noexcept
+    {}
+
+
+    void
+    on_r_accept(io_uring_cqe* cqe, RingEvent* ev) noexcept;
+
+
+    void
+    on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept;
+
+
+    void
+    on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept;
+
+
+    void
+    on_r_stop(io_uring_cqe* cqe, RingEvent* ev) noexcept;
+
+
+    void
+    on_r_timer(io_uring_cqe* cqe, RingEvent* ev) noexcept;
+
+
+    void
+    on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept;
 
 
     io_uring uring_ {};

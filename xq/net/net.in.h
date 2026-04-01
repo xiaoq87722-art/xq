@@ -25,13 +25,13 @@ constexpr int STATE_STOPPING = 3; // 正在停止
 
 enum class RingCommand {
     NONE,     // 无
-    S_ACCEPT, // session new connection
-    S_RECV,   // session read
-    S_SEND,   // session write
-    S_CANCEL, // session Cancel
+    R_ACCEPT, // session new connection
     R_STOP,   // reactor stop
     R_TIMER,  // reactor timer,
     R_SEND,   // reactor send
+    S_RECV,   // session read
+    S_SEND,   // session write
+    S_CANCEL, // session Cancel
     C_CONN,   // conn connection
     C_TIMER,  // conn timer
     C_RECV,
@@ -49,10 +49,11 @@ struct RingEvent {
 
 
     void
-    init(RingCommand c, SOCKET f = INVALID_SOCKET, void* d = nullptr) noexcept {
+    init(RingCommand c, SOCKET f = INVALID_SOCKET, void* d = nullptr, uint64_t g = 0) noexcept {
         cmd = c;
         fd = f;
         ex = d;
+        gen = g;
     }
 
 
@@ -64,6 +65,9 @@ struct RingEvent {
 
     /** 扩展数据 */
     void* ex { nullptr };
+
+    /** 世代号 */
+    uint64_t gen { 0 };
 
     /** 内部链表指针 */
     RingEvent* next { nullptr };

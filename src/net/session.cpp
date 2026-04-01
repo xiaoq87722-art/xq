@@ -28,6 +28,7 @@ xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     cfd_ = cfd;
     listener_ = l;
     reactor_ = r;
+    generation_++; 
     active_time_ = xq::utils::systime();
     remote_ = xq::net::sockaddr_to_string((sockaddr*)&addr_);
 
@@ -95,7 +96,7 @@ xq::net::Session::submit_recv(bool auto_submit) noexcept {
 
     auto* sqe = acquire_sqe(reactor_->uring());
     auto ev = reactor_->ev_pool().acquire_event();
-    ev->init(xq::net::RingCommand::S_RECV, cfd_, this);
+    ev->init(xq::net::RingCommand::S_RECV, cfd_, this, generation_);
     ::io_uring_sqe_set_data(sqe, ev);
     ::io_uring_prep_recv_multishot(sqe, cfd_, nullptr, 0, 0);
     sqe->flags |= IOSQE_BUFFER_SELECT;
@@ -124,7 +125,7 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool a
 
         if (!sending_.exchange(true)) {
             auto ev = ctr->ev_pool().acquire_event();
-            ev->init(RingCommand::R_SEND, cfd_, this);
+            ev->init(RingCommand::R_SEND, cfd_, this, generation_);
             ctr->notify(ctr->uring(), ev, auto_submit);
         }
 
@@ -150,7 +151,7 @@ xq::net::Session::submit_send(bool auto_submit) noexcept {
     sending_ = true;
     auto* sqe = acquire_sqe(reactor_->uring());
     auto ev = reactor_->ev_pool().acquire_event();
-    ev->init(RingCommand::S_SEND, cfd_, this);
+    ev->init(RingCommand::S_SEND, cfd_, this, generation_);
     ::io_uring_sqe_set_data(sqe, ev);
     ::io_uring_prep_send(sqe, cfd_, cwbuf_.data(), cwbuf_.len(), MSG_NOSIGNAL);
 

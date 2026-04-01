@@ -49,6 +49,12 @@ public:
     }
 
 
+    std::string
+    to_string() const {
+        return std::format("[{}]{}", lfd_, host_);
+    }
+
+
     void
     submit_accept(io_uring* uring, bool auto_submit = false) noexcept {
         auto *sqe = acquire_sqe(uring);

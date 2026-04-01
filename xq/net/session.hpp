@@ -41,6 +41,17 @@ public:
     release() noexcept;
 
 
+    bool
+    valid() const {
+        return cfd_ > 0 && cfd_ != INVALID_SOCKET;
+    }
+
+
+    uint64_t gen() const {
+        return generation_;
+    }
+
+
     SOCKET
     fd() const {
         return cfd_;
@@ -60,7 +71,7 @@ public:
 
 
     void
-    active_time(uint64_t v) noexcept {
+    set_active_time(uint64_t v) noexcept {
         active_time_ = v;
     }
 
@@ -108,7 +119,7 @@ public:
 
 
     void
-    sending(bool v) noexcept {
+    set_sending(bool v) noexcept {
         sending_ = v;
     }
 
@@ -174,6 +185,9 @@ private:
 
     /** 对端地址字符串 */
     std::string remote_;
+
+    /** 世代号 */
+    uint64_t generation_ { 0 };
 
     /** 当前发送缓冲区 current write buffer */
     Buffer cwbuf_;

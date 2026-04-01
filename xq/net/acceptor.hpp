@@ -14,6 +14,9 @@ namespace xq {
 namespace net {
 
 
+/**
+ * @brief Acceptor 工作线程, 用于处理监听套接字的连接
+ */
 class Acceptor {
     Acceptor(const Acceptor&) = delete;
     Acceptor& operator=(const Acceptor&) = delete;
@@ -32,15 +35,16 @@ public:
     ~Acceptor() noexcept;
 
 
-    io_uring* uring() noexcept {
+    io_uring*
+    uring() noexcept {
         return &uring_;
     }
 
 
-    // RingEvent::Pool&
-    // ev_pool() noexcept {
-    //     return ev_pool_;
-    // }
+    bool
+    running() const {
+        return state_ == STATE_RUNNING;
+    }
 
 
     void
@@ -56,8 +60,9 @@ public:
 
 private:
     explicit Acceptor() noexcept {
-        sess_slots_.resize(
-            std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10
+        sslots_.resize(
+            std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10,
+            nullptr
         );
     }
 
@@ -68,9 +73,7 @@ private:
     std::atomic<int> state_ { STATE_STOPPED };
 
     /** 所有 session 槽 */
-    std::vector<Session*> sess_slots_;
-
-    // RingEvent::Pool ev_pool_;
+    std::vector<Session*> sslots_;
 }; // class Acceptor;
 
 

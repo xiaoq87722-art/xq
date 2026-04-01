@@ -8,7 +8,7 @@
 
 
 static void
-signal_handler(int sig) {
+signal_handle(int sig) {
     if (sig == SIGINT || sig == SIGTERM) {
         xq::net::Connector::instance()->stop();
     }
@@ -59,7 +59,7 @@ xq::net::Connector::run(const std::initializer_list<const char*>& hosts) noexcep
         return;
     }
 
-    xq::utils::regist_signal(signal_handler, { SIGINT, SIGTERM });
+    xq::utils::regist_signal(signal_handle, { SIGINT, SIGTERM });
 
     // Step 1, 初始化 io_uring
     br_ = init_io_uring_with_br(&uring_, brbufs_);

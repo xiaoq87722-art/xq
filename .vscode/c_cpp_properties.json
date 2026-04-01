@@ -8,6 +8,7 @@
                 "/usr/include/x86_64-linux-gnu/c++/13",
                 "/usr/lib/gcc/x86_64-linux-gnu/13/include",
                 "/usr/local/include",
+                "/usr/local/include/mimalloc-3.2",
                 "/usr/include"
             ],
             "defines": [],

@@ -57,9 +57,10 @@ xq::net::Reactor::notify(io_uring* ct_uring, xq::net::RingEvent* ev, bool auto_s
     ASSERT(ct_uring->ring_fd != uring_.ring_fd, "当前线程正在向当前reactor 发送通知");
 
     auto* sqe = acquire_sqe(ct_uring);
-    ::io_uring_prep_msg_ring(sqe, uring_.ring_fd, 0, (uint64_t)ev, 0);
+    ::io_uring_prep_msg_ring(sqe, uring_.ring_fd, 0, (uint64_t)(uintptr_t)ev, 0);
+    sqe->flags |= IOSQE_CQE_SKIP_SUCCESS;
     ::io_uring_sqe_set_data(sqe, nullptr);
-
+    
     if (auto_submit) {
         int ret = ::io_uring_submit(ct_uring);
         ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
@@ -103,26 +104,13 @@ xq::net::Reactor::run() noexcept {
         io_uring_for_each_cqe(&uring_, head, cqe) {
             count++;
             auto* ev = (RingEvent*)::io_uring_cqe_get_data(cqe);
-            if (!ev) {
-                continue;
-            }
+            ASSERT(ev != nullptr, 
+                "代码不应该走到这里, 因为每个 sqe 都设置了 user_data, 而没有设置 user_data 的sqe 也设置了 IOSQE_CQE_SKIP_SUCCESS 标识");
 
             switch (ev->cmd) {
                 case RingCommand::R_STOP:
                     on_r_stop(cqe, ev);
                     should_stop = true;
-                    break;
-
-                case RingCommand::S_ACCEPT:
-                    on_s_accept(cqe, ev);
-                    break;
-
-                case RingCommand::S_RECV:
-                    on_s_read(cqe, ev);
-                    break;
-
-                case RingCommand::S_SEND:
-                    on_s_send(cqe, ev);
                     break;
 
                 case RingCommand::R_TIMER:
@@ -132,7 +120,23 @@ xq::net::Reactor::run() noexcept {
                 case RingCommand::R_SEND:
                     on_r_send(cqe, ev);
                     break;
-            }
+
+                case RingCommand::R_ACCEPT:
+                    on_r_accept(cqe, ev);
+                    break;
+
+                case RingCommand::S_RECV:
+                    on_s_recv(cqe, ev);
+                    break;
+
+                case RingCommand::S_SEND:
+                    on_s_send(cqe, ev);
+                    break;
+
+                default:
+                    ASSERT(0, "代码不应该走到这里来, 不应该有已处理的其他cmd");
+                    break;
+            } // switch(ev->cmd);
         }
 
         if (count > 0) {
@@ -168,7 +172,7 @@ xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
 
 
 void
-xq::net::Reactor::on_s_accept(io_uring_cqe*, RingEvent* ev) noexcept {
+xq::net::Reactor::on_r_accept(io_uring_cqe*, RingEvent* ev) noexcept {
     Session* s = (Session*)ev->ex;
     sessions_.insert(std::make_pair(ev->fd, s));
     s->submit_recv();
@@ -197,28 +201,62 @@ xq::net::Reactor::on_r_timer(io_uring_cqe*, RingEvent* ev) noexcept {
 
 
 void
-xq::net::Reactor::on_s_read(io_uring_cqe* cqe, RingEvent* ev) noexcept {
+xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
     auto sess = (Session*)ev->ex;
 
+    auto it = sessions_.find(ev->fd);
+    if (it == sessions_.end() || it->second != sess || ev->gen != sess->gen()) {
+        // 如果世代号不匹配，说明是上一个连接遗留的延迟 CQE
+        if (!(cqe->flags & IORING_CQE_F_MORE)) {
+            ev_pool_.release_event(ev);
+        }
+        return;
+    }
+
     if (res > 0) {
+        // 正常读取到数据的情况
         auto bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
         auto* buf = brbufs_[bid];
 
-        res = sess->send(this, buf, res);
-        sess->active_time(tnow_);
-        loaded_.fetch_add(res, std::memory_order_relaxed);
+        int n = sess->send(this, buf, res);
+        sess->set_active_time(tnow_);
+        if (n > 0) {
+            loaded_.fetch_add(n, std::memory_order_relaxed);
+        }
 
-        const int BUF_SIZE = xq::net::Conf::instance()->br_buf_size();
-        const int BUF_COUNT = xq::net::Conf::instance()->br_buf_count();
+        static const int BUF_SIZE = xq::net::Conf::instance()->br_buf_size();
+        static const int BUF_COUNT = xq::net::Conf::instance()->br_buf_count();
+
         ::io_uring_buf_ring_add(br_, buf, BUF_SIZE, bid, ::io_uring_buf_ring_mask(BUF_COUNT), bid);
         ::io_uring_buf_ring_advance(br_, 1);
-    }
 
-    if (res <= 0 || !(cqe->flags & IORING_CQE_F_MORE)) {
-        if (res < 0 && res != -ECANCELED) {
-            xERROR("{} => [{}]{}", sess->to_string(), -res, ::strerror(-res));
-        } else if (res == 0) {
+        if (!(cqe->flags & IORING_CQE_F_MORE)) {
+            // multishot recv 失效的情况
+            ev_pool_.release_event(ev);
+
+            if (sess->valid()) {
+                // 如果连接还有效
+                sess->submit_recv();
+            } else {
+                sessions_.erase(sess->fd());
+                sess->release();
+            }
+        }
+    } else {
+        // 出现 recv 错误的情况
+
+        if (res < 0) {
+            if (res == -EMFILE || res == -ENFILE) {
+                xFATAL("进程或系统的文件描述符(FD)配额用尽");
+            } else if (res == -ENOBUFS || res == -ENOMEM) {
+                xFATAL("内核内存不足");
+            } else if (res == -EINVAL) {
+                xFATAL("不支持 multishot 的旧版本内核上运行");
+            } else if (res != -ECANCELED) {
+                xERROR("{} 未捕获的错误 => [{}]{}", sess->to_string(), -res, ::strerror(-res));
+            }
+        } else {
             xINFO("EOF: {}", sess->to_string());
         }
 
@@ -236,18 +274,23 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto wbuf = sess->current_wbuf();
 
     do {
-        if (res <= 0) {
-            if (res < 0) {
-                xERROR("{} write failed: [{}]{}", sess->remote_addr(), -res, ::strerror(-res));
-            }
-            sess->sending(false);
+        auto it = sessions_.find(ev->fd);
+        if (it == sessions_.end() || it->second != sess) {
             break;
         }
 
-        wbuf->consume(res);
-        loaded_.fetch_add(res, std::memory_order_relaxed);
+        if (res < 0) {
+            xERROR("{} write failed: [{}]{}", sess->remote_addr(), -res, ::strerror(-res));
+            sess->set_sending(false);
+            break;
+        }
 
-        sess->sending(false);
+        if (res > 0) {
+            wbuf->consume(res);
+            loaded_.fetch_add(res, std::memory_order_relaxed);
+        }
+
+        sess->set_sending(false);
         sess->drain_wque();
         sess->submit_send();
     } while(0);
@@ -261,14 +304,10 @@ xq::net::Reactor::on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
     auto sess = (Session*)ev->ex;
 
-    do {
-        if (sessions_.count(ev->fd) == 0) {
-            break;
-        }
-
+    if (sessions_.find(ev->fd) != sessions_.end()) {
         sess->drain_wque();
         sess->submit_send();
-    } while(0);
+    }
 
     ev_pool_.release_event(ev);
 }
