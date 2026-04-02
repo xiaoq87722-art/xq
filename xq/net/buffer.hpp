@@ -82,6 +82,7 @@ public:
             cap_ = DEFFAULT_SIZE;
             xq::utils::free(data_);
             data_ = (uint8_t*)xq::utils::malloc(cap_);
+            ASSERT(data_ != nullptr, "xq::utils::malloc({}) failed", cap_);
         }
         start_ = end_ = 0;
     }

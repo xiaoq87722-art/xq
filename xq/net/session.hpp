@@ -112,12 +112,6 @@ public:
     }
 
 
-    std::atomic_bool&
-    sending() noexcept {
-        return sending_;
-    }
-
-
     /**
      * @brief 取消 session 会话. 
      *        该函数只能在 session 所属的 reactor 线程中调用.
