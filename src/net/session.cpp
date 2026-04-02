@@ -93,8 +93,7 @@ xq::net::Session::submit_recv(bool auto_submit, RingEvent* ev) noexcept {
 
     auto* sqe = acquire_sqe(reactor_->uring());
     if (!ev) {
-        ev = RingEvent::create();
-        ev->init(xq::net::RingCommand::S_RECV, cfd_, this, generation_);
+        ev = RingEvent::create(xq::net::RingCommand::S_RECV, cfd_, this, generation_);
     }
 
     ::io_uring_sqe_set_data(sqe, ev);
@@ -120,9 +119,11 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool a
     }
 
     if (!sending_.exchange(true)) {
-        auto ev = RingEvent::create();
-        ev->init(RingCommand::R_SEND, cfd_, this, generation_);
-        ctr->notify(ctr->uring(), ev, auto_submit);
+        ctr->notify(
+            ctr->uring(),
+            RingEvent::create(RingCommand::R_SEND, cfd_, this, generation_),
+            auto_submit
+        );
     }
 
     return 0;
@@ -157,8 +158,7 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
 
     // 确保有对应的 Event 对象
     if (!ev) {
-        ev = RingEvent::create();
-        ev->init(RingCommand::S_SEND, cfd_, wbuf, generation_);
+        ev = RingEvent::create(RingCommand::S_SEND, cfd_, wbuf, generation_);
     }
 
     auto* sqe = acquire_sqe(reactor_->uring());

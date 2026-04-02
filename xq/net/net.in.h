@@ -45,9 +45,9 @@ enum class RingCommand {
  */
 struct RingEvent {
     static RingEvent*
-    create() noexcept {
+    create(RingCommand c, SOCKET f = INVALID_SOCKET, void* d = nullptr, uint64_t g = 0) noexcept {
         auto p = xq::utils::malloc(sizeof(RingEvent));
-        return new(p) RingEvent;
+        return new(p) RingEvent(c, f, d, g);
     }
 
 
@@ -61,19 +61,11 @@ struct RingEvent {
 
     ~RingEvent() noexcept {}
 
+
     RingEvent(const RingEvent&) = delete;
     RingEvent(RingEvent&&) = delete;
     RingEvent& operator=(const RingEvent&) = delete;
     RingEvent& operator=(RingEvent&&) = delete;
-
-
-    void
-    init(RingCommand c, SOCKET f = INVALID_SOCKET, void* d = nullptr, uint64_t g = 0) noexcept {
-        cmd = c;
-        fd = f;
-        ex = d;
-        gen = g;
-    }
 
 
     /** 命令 */
@@ -89,7 +81,9 @@ struct RingEvent {
     uint64_t gen { 0 };
 
 private:
-    RingEvent() noexcept {}
+    RingEvent(RingCommand c, SOCKET f, void* d, uint64_t g) noexcept
+        : cmd(c), fd(f), ex(d), gen(g)
+    {}
 };
 
 

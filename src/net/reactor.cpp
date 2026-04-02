@@ -34,8 +34,7 @@ setup_timer(xq::net::Reactor* reactor, xq::net::RingEvent* ev) {
         ASSERT(!::timerfd_settime(tfd, 0, &its, nullptr), "[{}] {}", errno, ::strerror(errno));
 
         uint64_t* counter = new uint64_t(0);
-        ev = xq::net::RingEvent::create();
-        ev->init(xq::net::RingCommand::R_TIMER, tfd, (void*)(uintptr_t)counter);
+        ev = xq::net::RingEvent::create(xq::net::RingCommand::R_TIMER, tfd, (void*)(uintptr_t)counter);
     }
 
     auto *sqe = xq::net::acquire_sqe(reactor->uring());

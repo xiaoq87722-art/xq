@@ -32,8 +32,7 @@ setup_timer(xq::net::Connector* connector, xq::net::RingEvent* ev) {
         ASSERT(ret == 0, "timerfd_settime failed: {}, {}", errno, ::strerror(errno));
 
         uint64_t* counter = new uint64_t(0);
-        ev = xq::net::RingEvent::create();
-        ev->init(xq::net::RingCommand::C_TIMER, tfd, (void*)(uintptr_t)counter);
+        ev = xq::net::RingEvent::create(xq::net::RingCommand::C_TIMER, tfd, (void*)(uintptr_t)counter);
     }
 
     auto *sqe = xq::net::acquire_sqe(connector->uring());
