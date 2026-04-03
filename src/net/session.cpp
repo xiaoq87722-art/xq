@@ -118,16 +118,15 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool a
     }
 
     if (!sending_.exchange(true, std::memory_order_acq_rel)) {
-        if (ctr->thread_id() == reactor_->thread_id()) {
+        if (ctr == reactor_) {
             submit_send(nullptr, auto_submit);
-            return 0;
+        } else {
+            reactor_->notify(
+                ctr->uring(), 
+                RingEvent::create(RingCommand::R_SEND, cfd_, this, generation_),
+                auto_submit
+            );
         }
-
-        reactor_->notify(
-            ctr->uring(), 
-            RingEvent::create(RingCommand::R_SEND, cfd_, this, generation_),
-            auto_submit
-        );
     }
 
     return 0;
