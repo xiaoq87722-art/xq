@@ -111,10 +111,6 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
     while (1) {
         ret = ::io_uring_submit_and_wait(&uring_, 1);
         if (ret < 0) {
-            if (ret == -EINTR && !running()) {
-                break;
-            }
-
             xERROR("io_uring_submit_and_wait failed: [{}] {}", -ret, ::strerror(-ret));
             continue;
         }
@@ -124,6 +120,10 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
             count++;
             auto l = (Listener*)::io_uring_cqe_get_data(cqe);
             if (!l) {
+                if (cqe->res == 1) {
+                    // 收到 停止信息
+                    break;
+                }
                 continue;
             }
 
@@ -182,4 +182,18 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
 
     xINFO("❎ 服务关闭 ❎");
     state_ = STATE_STOPPED;
+}
+
+
+void
+xq::net::Acceptor::stop() noexcept {
+    int state_running = STATE_RUNNING;
+    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
+        auto sqe = acquire_sqe(&uring_);
+        ::io_uring_prep_msg_ring(sqe, uring_.ring_fd, 1, (uint64_t)(uintptr_t)nullptr, 0);
+        sqe->flags |= IOSQE_CQE_SKIP_SUCCESS;
+        ::io_uring_sqe_set_data(sqe, nullptr);
+        int ret = ::io_uring_submit(&uring_);
+        ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
+    }
 }

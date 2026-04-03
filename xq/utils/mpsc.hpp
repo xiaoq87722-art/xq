@@ -146,8 +146,12 @@ public:
 
     bool
     enqueue(T&& data) noexcept {
-        thread_local static size_t tid_hash = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        size_t idx = tid_hash & shard_mask_;
+        thread_local static size_t cached_idx = []() {
+            size_t h = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            return h;
+        }();
+
+        size_t idx = cached_idx & shard_mask_;
         
         if (shards_[idx]->enqueue(std::move(data))) {
             return true;

@@ -58,10 +58,7 @@ public:
 
 
     void
-    stop() noexcept {
-        int state_running = STATE_RUNNING;
-        state_.compare_exchange_strong(state_running, STATE_STOPPING);
-    }
+    stop() noexcept;
 
 
 private:
