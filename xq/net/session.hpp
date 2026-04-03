@@ -175,6 +175,8 @@ private:
 
     /** 是否处理发送状态 */
     std::atomic_bool sending_ { false };
+
+    std::atomic_bool inflight_ { false };
 }; // class Session;
 
 

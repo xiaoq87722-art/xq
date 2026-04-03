@@ -47,6 +47,13 @@ class MPSC {
 
 
         bool
+        empty() const noexcept {
+            size_t eq = enqueue_pos_.load(std::memory_order_acquire);
+            return eq == dequeue_pos_;
+        }
+
+
+        bool
         enqueue(T&& data) noexcept {
             size_t pos = enqueue_pos_.load(std::memory_order_relaxed);
             int spin = 1;
@@ -63,7 +70,8 @@ class MPSC {
                         return true;
                     }
                 } else if (diff < 0) {
-                    return false; // 满了
+                    // 满了
+                    return false; 
                 } else {
                     pos = enqueue_pos_.load(std::memory_order_relaxed);
                 }
@@ -122,6 +130,17 @@ public:
         for (size_t i = 0; i < shard_count; ++i) {
             shards_.emplace_back(std::make_unique<SingleQueue>(per_shard_size));
         }
+    }
+
+
+    bool
+    empty() const noexcept {
+        for (size_t i = 0; i < shards_.size(); ++i) {
+            if (!shards_[i]->empty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
 
