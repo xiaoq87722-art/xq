@@ -104,6 +104,7 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
     io_uring_cqe* cqe = nullptr;
     SOCKET cfd = INVALID_SOCKET;
     unsigned head, count;
+    bool should_stop = false;
 
     // Step 5, 事件循环
     xINFO("✅ 1 acceptor 线程, {} reactor 线程 开始工作 ✅", threads.size());
@@ -122,7 +123,8 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
             if (!l) {
                 if (cqe->res == 1) {
                     // 收到 停止信息
-                    break;
+                    should_stop = true;
+                    continue;
                 }
                 continue;
             }
@@ -161,7 +163,7 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
             ::io_uring_cq_advance(&uring_, count);
         }
 
-        if (!running()) {
+        if (should_stop || !running()) {
             break;
         }
     }

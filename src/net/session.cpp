@@ -29,7 +29,7 @@ xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     listener_ = l;
     reactor_ = r;
     generation_++; 
-    inflight_.store(false, std::memory_order_relaxed);
+    inflight_ = false;
     active_time_ = xq::utils::systime();
     remote_ = xq::net::sockaddr_to_string((sockaddr*)&addr_);
 
@@ -118,6 +118,11 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool a
     }
 
     if (!sending_.exchange(true, std::memory_order_acq_rel)) {
+        if (ctr->thread_id() == reactor_->thread_id()) {
+            submit_send(nullptr, auto_submit);
+            return 0;
+        }
+
         reactor_->notify(
             ctr->uring(), 
             RingEvent::create(RingCommand::R_SEND, cfd_, this, generation_),
@@ -134,10 +139,10 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
     ASSERT(::pthread_self() == reactor_->thread_id(), "只允许 session 的所属 reactor 线程调用 submit_send 函数");
 
     if (ev && ev->cmd == RingCommand::S_SEND) {
-        inflight_.store(false, std::memory_order_relaxed);
+        inflight_ = false;
     }
 
-    if (inflight_.load(std::memory_order_relaxed)) {
+    if (inflight_) {
         return;
     }
 
@@ -169,7 +174,7 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
             return; 
         }
 
-        inflight_.store(true, std::memory_order_relaxed);
+        inflight_ = true;
 
         if (!ev) {
             ev = RingEvent::create(RingCommand::S_SEND, cfd_, wbuf, generation_);

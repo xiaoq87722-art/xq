@@ -176,7 +176,8 @@ private:
     /** 是否处理发送状态 */
     std::atomic_bool sending_ { false };
 
-    std::atomic_bool inflight_ { false };
+    /** 仅在所属 Reactor 线程内访问，无需原子 */
+    bool inflight_ { false };
 }; // class Session;
 
 
