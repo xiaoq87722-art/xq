@@ -93,7 +93,14 @@ xq::net::tcp_listen(const char* host, int rcv_buf, int snd_buf) noexcept {
 io_uring_buf_ring*
 xq::net::init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*> &brbufs) noexcept {
     const auto que_depth = xq::net::Conf::instance()->que_depth();
-    int ret = ::io_uring_queue_init(que_depth, uring, IORING_SETUP_SINGLE_ISSUER);
+
+    io_uring_params params;
+    ::memset(&params, 0, sizeof(params));
+
+    params.cq_entries = que_depth * 2;
+    params.flags = (IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_CQSIZE);
+
+    int ret = ::io_uring_queue_init_params(que_depth, uring, &params);
     ASSERT(ret == 0, "io_uring_queue_init failed: {}, {}", -ret, ::strerror(-ret));
 
     const auto BUF_COUNT = Conf::instance()->br_buf_count();
