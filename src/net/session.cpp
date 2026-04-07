@@ -5,6 +5,9 @@
 #include <netinet/tcp.h>
 
 
+static constexpr int BATCH_COUNT = 16;
+
+
 void
 xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     if (cfd_ != INVALID_SOCKET) {
@@ -34,13 +37,8 @@ xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     remote_ = xq::net::sockaddr_to_string((sockaddr*)&addr_);
 
     int n = 0;
-    Buffer* bs[10];
-
-    while(n = wque_.try_dequeue_bulk(bs, 10), n > 0) {
-        for (int i = 0; i < n; ++i) {
-            delete bs[i];
-        }
-    }
+    Buffer bufs[BATCH_COUNT];
+    while(n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT), n > 0);
 
     sending_.store(false, std::memory_order_release);
     xINFO("{} 连接成功", to_string());
@@ -58,13 +56,8 @@ xq::net::Session::release() noexcept {
     cfd_ = INVALID_SOCKET;
 
     int n = 0;
-    Buffer* bs[10];
-
-    while(n = wque_.try_dequeue_bulk(bs, 10), n > 0) {
-        for (int i = 0; i < n; ++i) {
-            delete bs[i];
-        }
-    }
+    Buffer bufs[BATCH_COUNT];
+    while(n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT), n > 0);
 }
 
 
@@ -109,13 +102,9 @@ xq::net::Session::submit_recv(bool auto_submit, RingEvent* ev) noexcept {
 
 int
 xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool auto_submit) noexcept {
-    Buffer* wbuf = new Buffer;
-    wbuf->set_data(data, datalen);
-    if (!wque_.enqueue(std::move(wbuf))) {
-        delete wbuf;
-        xERROR("{} 发送队列已满, 发送失败", to_string());
-        return -1;
-    }
+    Buffer buf;
+    buf.set_data(data, datalen);
+    ASSERT(wque_.enqueue(std::move(buf)), " 发送队列已满, 发送失败", to_string());
 
     if (!sending_.exchange(true, std::memory_order_acq_rel)) {
         if (ctr == reactor_) {
@@ -145,55 +134,86 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
         return;
     }
 
-    Buffer* wbuf = (ev && ev->cmd == RingCommand::S_SEND) ? (Buffer*)ev->ex : nullptr;
+    SendBuf* sbuf = ev && ev->cmd == RingCommand::S_SEND ? (SendBuf*)ev->ex : nullptr;
 
-    while (true) {
-        Buffer* bs[16];
-        int n;
-        while ((n = wque_.try_dequeue_bulk(bs, 16)) > 0) {
-            if (!wbuf) wbuf = new Buffer;
-            for (int i = 0; i < n; ++i) {
-                wbuf->append(bs[i]->data(), bs[i]->len());
-                delete bs[i];
+    if (sbuf) {
+        if (sbuf->total == 0) {
+            for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
+                auto& iov = sbuf->mh.msg_iov[i];
+                xq::utils::free(iov.iov_base);
             }
-        }
-
-        if (!wbuf || wbuf->len() == 0) {
-            if (wbuf) { delete wbuf; wbuf = nullptr; }
-            if (ev) { RingEvent::destroy(ev); ev = nullptr; }
-
-            sending_.store(false, std::memory_order_release);
-
-            // --- Double Check ---
-            if (!wque_.empty()) {
-                if (!sending_.exchange(true, std::memory_order_acquire)) {
-                    continue; 
+            xq::utils::free(sbuf->mh.msg_iov);
+        
+            // 发送完成, 再次从队列中获取数据
+            Buffer bufs[BATCH_COUNT];
+            int n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
+            if (n == 0) {
+                delete sbuf;
+                RingEvent::destroy(ev);
+                sending_.store(false, std::memory_order_release);
+                if (!wque_.empty() && !sending_.exchange(true, std::memory_order_acq_rel)) {
+                    submit_send(nullptr, auto_submit);
                 }
+                return;
             }
-            return; 
+
+            auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
+            for (int i = 0; i < n; ++i) {
+                iovs[i] = bufs[i];
+                sbuf->total += iovs[i].iov_len;
+            }
+            sbuf->mh.msg_iov = iovs;
+            sbuf->mh.msg_iovlen = n;
         }
 
-        inflight_ = true;
-
-        if (!ev) {
-            ev = RingEvent::create(RingCommand::S_SEND, cfd_, wbuf, generation_);
-        } else {
-            ev->cmd = RingCommand::S_SEND;
-            ev->ex = wbuf;
-            ev->gen = generation_;
-        }
-
+        // 如果有未发送完成的数据, 需要等到发送完成为止
         auto* sqe = acquire_sqe(reactor_->uring());
-        ASSERT(sqe, "io_uring SQE pool is full"); 
-
         ::io_uring_sqe_set_data(sqe, ev);
-        ::io_uring_prep_send(sqe, cfd_, wbuf->data(), wbuf->len(), MSG_NOSIGNAL);
+        ::io_uring_prep_sendmsg(sqe, cfd_, &sbuf->mh, MSG_NOSIGNAL);
 
         if (auto_submit) {
             int ret = ::io_uring_submit(reactor_->uring());
             ASSERT(ret >= 0, "::io_uring_submit failed");
         }
 
-        return; 
+        return;
+    }
+
+    Buffer bufs[BATCH_COUNT];
+    int n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
+    if (n == 0) {
+        return;
+    }
+
+    sbuf = new SendBuf;
+    auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
+
+    for (int i = 0; i < n; ++i) {
+        auto& iov = iovs[i];
+        auto& buf = bufs[i];
+        iov = buf;
+        sbuf->total += iov.iov_len;
+    }
+
+    sbuf->mh.msg_iov = iovs;
+    sbuf->mh.msg_iovlen = n;
+
+    inflight_ = true;
+
+    if (!ev) {
+        ev = RingEvent::create(RingCommand::S_SEND, cfd_, sbuf, generation_);
+    } else {
+        ev->cmd = RingCommand::S_SEND;
+        ev->ex = sbuf;
+        ev->gen = generation_;
+    }
+
+    auto* sqe = acquire_sqe(reactor_->uring());
+    ::io_uring_sqe_set_data(sqe, ev);
+    ::io_uring_prep_sendmsg(sqe, cfd_, &sbuf->mh, MSG_NOSIGNAL);
+
+    if (auto_submit) {
+        int ret = ::io_uring_submit(reactor_->uring());
+        ASSERT(ret >= 0, "::io_uring_submit failed");
     }
 }

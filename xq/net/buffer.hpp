@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 #include <memory>
-#include <algorithm>
+#include <sys/socket.h>
 #include "xq/utils/memory.hpp"
 #include "xq/utils/log.hpp"
 
@@ -13,94 +13,77 @@ namespace xq {
 namespace net {
 
 
-class Buffer {
-    Buffer(const Buffer&) = delete;
-    Buffer(Buffer&&) = delete;
-    Buffer& operator=(const Buffer&) = delete;
-    Buffer& operator=(Buffer&&) = delete;
+struct Buffer {
+    void* data { nullptr };
+    uint32_t len { 0 };
+
+    Buffer(const Buffer& other) = delete;
+    Buffer& operator=(const Buffer& other) = delete;
 
 
-    static constexpr uint32_t THRESHOLD_SIZE = 1024 * 1024 * 2;
-    static constexpr uint32_t DEFFAULT_SIZE = 1024 * 2;
+    Buffer() {}
 
 
-public:
-    explicit Buffer() noexcept {
-        data_ = (uint8_t*)xq::utils::malloc(cap_);
-        ASSERT(data_, "xq::utils::malloc({}) failed", cap_);
-    }
-
-
-    ~Buffer() noexcept {
-        xq::utils::free(data_);
-    }
-
-
-    const uint8_t*
-    data() const {
-        return data_ + start_;
-    }
-
-
-    uint32_t
-    len() const {
-        return end_ - start_;
-    }
-
-
-    uint32_t
-    cap() const {
-        return cap_;
-    }
-
-
-    void
-    append(const uint8_t* data, uint32_t datalen) noexcept;
-
-
-    void
-    set_data(const uint8_t* data, uint32_t datalen) noexcept {
-        ::memcpy(data_, data, datalen);
-        end_ = datalen;
-        start_ = 0;
-    }
-
-
-    void
-    consume(uint32_t n) noexcept {
-        n = std::min(n, len());
-        start_ += n;
-        if (start_ == end_) {
-            reset();
+    ~Buffer() {
+        if (data) {
+            xq::utils::free(data);
         }
     }
 
 
-    void
-    reset() noexcept {
-        if (cap_ >= THRESHOLD_SIZE) {
-            cap_ = DEFFAULT_SIZE;
-            xq::utils::free(data_);
-            data_ = (uint8_t*)xq::utils::malloc(cap_);
-            ASSERT(data_ != nullptr, "xq::utils::malloc({}) failed", cap_);
-        }
-        start_ = end_ = 0;
+    Buffer(Buffer&& other) 
+        : data(other.data), len(other.len) {
+            other.data = nullptr;
+            other.len = 0;
     }
 
 
-private:
-    /** 数据指针 */
-    uint8_t* data_ { nullptr };
+    Buffer&
+    operator=(Buffer&& other) {
+        if (this != &other) {
+            if (this->data) {
+                xq::utils::free(this->data);
+            }
 
-    /** 数据开始位置 */
-    uint32_t start_ { 0 };
+            this->data = other.data;
+            this->len = other.len;
 
-    /** 数据终止位置 */
-    uint32_t end_ { 0 };
+            other.data = nullptr;
+            other.len = 0;
+        }
 
-    /** data_ 总大小 */
-    uint32_t cap_ { DEFFAULT_SIZE };
-}; // class Buffer;
+        return *this;
+    }
+
+
+    operator iovec() {
+        iovec iov;
+        iov.iov_base = data;
+        iov.iov_len = len;
+
+        data = nullptr;
+        len = 0;
+
+        return std::move(iov);
+    }
+
+
+    void
+    set_data(const void* data, uint32_t datalen) {
+        if (!this->data) {
+            this->data = xq::utils::malloc(datalen);
+        }
+
+        ::memcpy(this->data, data, datalen);
+        this->len = datalen;
+    }
+};
+
+
+struct SendBuf {
+    msghdr   mh {};
+    uint32_t total { 0 };
+};
 
     
 } // namespace net

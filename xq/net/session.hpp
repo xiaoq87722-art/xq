@@ -171,7 +171,7 @@ private:
     uint64_t generation_ { 0 };
 
     /** 发送队列 */
-    xq::utils::MPSC<Buffer*> wque_;
+    xq::utils::MPSC<Buffer> wque_;
 
     /** 是否处理发送状态 */
     std::atomic_bool sending_ { false };

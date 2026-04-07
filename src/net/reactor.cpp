@@ -262,13 +262,37 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 void
 xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
-    auto wbuf = (Buffer*)ev->ex;
+    auto sbuf = (SendBuf*)ev->ex;
 
     auto it = sessions_.find(ev->fd);
     if (it != sessions_.end() && it->second->gen() == ev->gen) {
         auto* sess = it->second;
         if (res >= 0) {
-            wbuf->consume(res);
+            auto sn = res;
+
+            sbuf->total -= res;
+            if (sbuf->total > 0) {
+                for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
+                    if (sn == 0) {
+                        break;
+                    }
+
+                    auto& iov = sbuf->mh.msg_iov[i];
+                    if (iov.iov_len > sn) {
+                        auto tmp = iov.iov_base;
+                        auto len = iov.iov_len - sn;
+                        iov.iov_len = len;
+                        iov.iov_base = xq::utils::malloc(len);
+                        ::memcpy(iov.iov_base, (uint8_t*)tmp + sn, len);
+                        xq::utils::free(tmp);
+                        break;
+                    }
+
+                    sn -= iov.iov_len;
+                    iov.iov_len = 0;
+                }
+            }
+
             loaded_.fetch_add(res, std::memory_order_relaxed);
             sess->submit_send(ev);
             return; 
@@ -278,7 +302,12 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         }
     }
 
-    delete wbuf;
+    for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
+        xq::utils::free(sbuf->mh.msg_iov[i].iov_base);
+    }
+    xq::utils::free(sbuf->mh.msg_iov);
+
+    delete sbuf;
     RingEvent::destroy(ev);
 }
 
