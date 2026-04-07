@@ -3,6 +3,7 @@
 
 
 #include "xq/net/net.in.h"
+#include "xq/net/buffer.hpp"
 #include <unistd.h>
 #include <sys/socket.h>
 #include <string>
@@ -13,6 +14,20 @@ namespace xq {
 namespace net {
 
 
+class Session;
+class Listener;
+
+
+class ListenerEvent {
+public:
+    virtual void on_init(Listener* listener) {}
+    virtual void on_stopped(Listener* listener) {}
+    virtual int on_connected(Session* sess) { return 0; }
+    virtual void on_disconnected(Session* sess) {}
+    virtual int on_data(Session* sess, const Buffer& buf) = 0;
+}; // class ListenerEvent;
+
+
 class Listener {
     Listener(const Listener&) = delete;
     Listener& operator=(const Listener&) = delete;
@@ -21,12 +36,7 @@ class Listener {
 
 
 public:
-    static std::vector<Listener*>
-    build_listeners(io_uring* uring, const std::initializer_list<const char*>& endpoints);
-
-
-    static void
-    release_listeners(std::vector<Listener*>& list);
+    Listener(ListenerEvent* ev, const char* endpoint) noexcept;
 
 
     ~Listener() noexcept {
@@ -34,6 +44,8 @@ public:
             ::close(lfd_);
             lfd_ = INVALID_SOCKET;
         }
+
+        ev_->on_stopped(this);
     }
 
 
@@ -55,6 +67,16 @@ public:
     }
 
 
+    ListenerEvent* event() {
+        return ev_;
+    }
+
+
+    const ListenerEvent* event() const {
+        return ev_;
+    }
+
+
     void
     submit_accept(io_uring* uring, bool auto_submit = false) noexcept {
         auto *sqe = acquire_sqe(uring);
@@ -69,11 +91,11 @@ public:
 
 
 private:
-    Listener(const char* endpoint) noexcept;
-
-
     /** 监听套接字 */
     SOCKET lfd_ { INVALID_SOCKET };
+
+    /** 监听事件 */
+    ListenerEvent* ev_ { nullptr };
 
     /** 监听地址 */
     std::string host_;

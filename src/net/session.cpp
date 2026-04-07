@@ -1,6 +1,7 @@
 #include "xq/net/session.hpp"
 #include "xq/utils/log.hpp"
 #include "xq/utils/time.hpp"
+#include "xq/net/listener.hpp"
 #include "xq/net/reactor.hpp"
 #include <netinet/tcp.h>
 
@@ -58,6 +59,8 @@ xq::net::Session::release() noexcept {
     int n = 0;
     Buffer bufs[BATCH_COUNT];
     while(n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT), n > 0);
+
+    listener_->event()->on_disconnected(this);
 }
 
 

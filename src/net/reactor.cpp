@@ -173,8 +173,14 @@ xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
 void
 xq::net::Reactor::on_r_accept(io_uring_cqe*, RingEvent* ev) noexcept {
     Session* s = (Session*)ev->ex;
-    sessions_.insert(std::make_pair(ev->fd, s));
-    s->submit_recv();
+
+    if (s->listener()->event()->on_connected(s) != 0) {
+        s->release();
+    } else {
+        sessions_.insert(std::make_pair(ev->fd, s));
+        s->submit_recv();
+    }
+    
     RingEvent::destroy(ev);
 }
 
@@ -218,7 +224,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         auto bid = (uint16_t)(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
         auto buf = brbufs_[bid];
 
-        sess->send(this, buf, res);
+        sess->listener()->event()->on_data(sess, Buffer{ buf, (uint32_t)res });
         sess->set_active_time(tnow_);
         loaded_.fetch_add(res, std::memory_order_relaxed);
 

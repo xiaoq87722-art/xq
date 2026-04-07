@@ -173,11 +173,14 @@ private:
     /** 发送队列 */
     xq::utils::MPSC<Buffer> wque_;
 
+    /** 仅在所属 Reactor 线程内访问，无需原子 */
+    bool inflight_ { false };
+
     /** 是否处理发送状态 */
     std::atomic_bool sending_ { false };
 
-    /** 仅在所属 Reactor 线程内访问，无需原子 */
-    bool inflight_ { false };
+    /** 用户数据 */
+    void* user_data_ { nullptr };
 }; // class Session;
 
 

@@ -35,7 +35,7 @@ get_reactor(const std::vector<xq::net::Reactor::Ptr>& reactors) {
 
 static void
 init_reactors(std::vector<xq::net::Reactor::Ptr>& reactors, std::vector<std::thread>& threads) {
-    const uint32_t nthread = std::thread::hardware_concurrency();
+    const uint32_t nthread = std::thread::hardware_concurrency() - 1;
 
     for (uint32_t i = 0; i < nthread; ++i) {
         auto reactor = xq::net::Reactor::create();
@@ -78,7 +78,7 @@ xq::net::Acceptor::~Acceptor() noexcept {
 
 
 void
-xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noexcept {
+xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
     int stopped = STATE_STOPPED;
     if (!state_.compare_exchange_strong(stopped, STATE_STARTING)) {
         return;
@@ -98,8 +98,9 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
     // Step 3, 注册信号处理函数
     xq::utils::regist_signal(signal_handle, {SIGINT, SIGTERM});
 
-    // Step 4, 启动Listener线程并添加监听事件
-    auto listeners = Listener::build_listeners(&uring_, endpoints);
+    for (auto l: listeners) {
+        l->submit_accept(&uring_);
+    }
 
     io_uring_cqe* cqe = nullptr;
     SOCKET cfd = INVALID_SOCKET;
@@ -167,9 +168,6 @@ xq::net::Acceptor::run(const std::initializer_list<const char*>& endpoints) noex
             break;
         }
     }
-
-    // Step 6, 停止监听
-    Listener::release_listeners(listeners);
 
     // Step 7, 停止 reactor 线程
     for (auto& r: reactors) {

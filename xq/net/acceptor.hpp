@@ -54,7 +54,7 @@ public:
     
 
     void
-    run(const std::initializer_list<const char*>& endpoints) noexcept;
+    run(std::vector<Listener*>& listeners) noexcept;
 
 
     void

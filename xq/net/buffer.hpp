@@ -17,11 +17,16 @@ struct Buffer {
     void* data { nullptr };
     uint32_t len { 0 };
 
+
     Buffer(const Buffer& other) = delete;
     Buffer& operator=(const Buffer& other) = delete;
 
-
     Buffer() {}
+
+
+    Buffer(const void* data, uint32_t datalen) {
+        set_data(data, datalen);
+    }
 
 
     ~Buffer() {

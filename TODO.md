@@ -21,8 +21,5 @@ BUG 5: br_buf_count 默认值过小，高并发下必然触发 -ENOBUFS (conf.hp
     (2) -ENOBUFS 时不能 FATAL，应降级处理：记录警告，重新提交不带 buf_ring 的 recv，
         或等下次循环回收 buffer 后再试。
 
-BUG 6: 跨线程 send 失败静默丢包 (session.cpp send / reactor.cpp on_s_recv)
-  on_s_recv 中调用 sess->send() 的返回值被丢弃。
-  send() 在 MPSC 队列满时返回 -1，数据直接丢弃，上层无任何通知。
-  对游戏/IM 场景丢包是严重问题。
-  修复：send() 失败时至少触发断连（submit_cancel），或在回调层通知上层做背压/重传处理。
+BUG 6: 跨线程 send 失败静默丢包 (session.cpp send / reactor.cpp on_s_recv) [已修复]
+  send() 改为 void，队列满时 ASSERT 崩溃，不再静默丢包。
