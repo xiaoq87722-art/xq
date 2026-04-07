@@ -23,6 +23,8 @@ class Session {
     Session& operator=(const Session&) = delete;
     Session& operator=(Session&&) = delete;
 
+    friend class Reactor;
+
 
 public:
     explicit Session() noexcept : wque_(4, 16) {}
@@ -139,11 +141,20 @@ public:
 
 
     /**
-     * @brief 提交发送. 会将 session 发送缓冲区的数据发送出去. 
+     * @brief 提交发送. 会将 session 发送缓冲区的数据发送出去.
      *        该函数只能在 session 所属的 reactor 线程中调用.
      */
     void
     submit_send(RingEvent* ev = nullptr, bool auto_submit = false) noexcept;
+
+
+    /**
+     * @brief 直接用预构建的 sbuf 提交发送（用于 sendmsg_zc 部分发送续传）.
+     *        调用前必须确保 inflight_ == false.
+     *        该函数只能在 session 所属的 reactor 线程中调用.
+     */
+    void
+    submit_send_prepared(SendBuf* sbuf, bool auto_submit = false) noexcept;
 
 
 private:

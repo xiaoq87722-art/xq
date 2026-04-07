@@ -264,53 +264,74 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
 void
 xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
-    auto res = cqe->res;
-    auto sbuf = (SendBuf*)ev->ex;
+    auto* sbuf = (SendBuf*)ev->ex;
 
+    // 第二个 CQE: kernel 已用完 buffer，现在才能 free
+    if (cqe->flags & IORING_CQE_F_NOTIF) {
+        for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
+            xq::utils::free(sbuf->mh.msg_iov[i].iov_base);
+        }
+        xq::utils::free(sbuf->mh.msg_iov);
+        delete sbuf;
+        RingEvent::destroy(ev);
+        return;
+    }
+
+    // 第一个 CQE: 发送结果，不能 free iov，等 NOTIF
+    auto res = cqe->res;
     auto it = sessions_.find(ev->fd);
+
     if (it != sessions_.end() && it->second->gen() == ev->gen) {
         auto* sess = it->second;
+        sess->inflight_ = false;
+
         if (res >= 0) {
-            auto sn = res;
-
             sbuf->total -= res;
+
             if (sbuf->total > 0) {
+                // 部分发送: 用剩余数据构建新 sbuf，不能碰旧 sbuf 的 iov（kernel 还持有）
+                int sn = res;
+                int start_iov = sbuf->mh.msg_iovlen;
+                size_t start_offset = 0;
                 for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
-                    if (sn == 0) {
+                    if ((size_t)sn < sbuf->mh.msg_iov[i].iov_len) {
+                        start_iov    = i;
+                        start_offset = sn;
                         break;
                     }
-
-                    auto& iov = sbuf->mh.msg_iov[i];
-                    if (iov.iov_len > sn) {
-                        auto tmp = iov.iov_base;
-                        auto len = iov.iov_len - sn;
-                        iov.iov_len = len;
-                        iov.iov_base = xq::utils::malloc(len);
-                        ::memcpy(iov.iov_base, (uint8_t*)tmp + sn, len);
-                        xq::utils::free(tmp);
-                        break;
-                    }
-
-                    sn -= iov.iov_len;
-                    iov.iov_len = 0;
+                    sn -= sbuf->mh.msg_iov[i].iov_len;
                 }
-            }
 
-            sess->submit_send(ev);
-            return; 
+                int remaining = sbuf->mh.msg_iovlen - start_iov;
+                auto* new_iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * remaining);
+                for (int i = 0; i < remaining; ++i) {
+                    auto& src     = sbuf->mh.msg_iov[start_iov + i];
+                    size_t offset = (i == 0) ? start_offset : 0;
+                    size_t len    = src.iov_len - offset;
+                    new_iovs[i].iov_base = xq::utils::malloc(len);
+                    new_iovs[i].iov_len  = len;
+                    ::memcpy(new_iovs[i].iov_base, (uint8_t*)src.iov_base + offset, len);
+                }
+
+                auto* new_sbuf          = new SendBuf;
+                new_sbuf->mh.msg_iov    = new_iovs;
+                new_sbuf->mh.msg_iovlen = remaining;
+                new_sbuf->total         = sbuf->total;
+                sess->submit_send_prepared(new_sbuf);
+            } else {
+                // 全部发完，从队列取下一批
+                sess->submit_send();
+            }
+            // ev 不销毁，等 NOTIF CQE 来了再 free
+            return;
         } else if (res != -ECANCELED) {
             xERROR("{} send failed: [{}]{}", sess->to_string(), -res, ::strerror(-res));
             sess->submit_cancel();
         }
+        // 出错: session 即将被 cancel，ev 不销毁，等 NOTIF
     }
 
-    for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
-        xq::utils::free(sbuf->mh.msg_iov[i].iov_base);
-    }
-    xq::utils::free(sbuf->mh.msg_iov);
-
-    delete sbuf;
-    RingEvent::destroy(ev);
+    // session 已不存在或出错: ev 不销毁，等 NOTIF 来 free iov
 }
 
 

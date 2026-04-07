@@ -136,59 +136,53 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
         return;
     }
 
-    // Phase 2: 准备下一批发送数据
-    //   sbuf->total > 0: 部分发送未完成，直接用现有 sbuf 继续
-    //   sbuf == nullptr || sbuf->total == 0: 需要从队列取新数据
-    if (!sbuf || sbuf->total == 0) {
-        if (sbuf) {
-            for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
-                xq::utils::free(sbuf->mh.msg_iov[i].iov_base);
-            }
-            xq::utils::free(sbuf->mh.msg_iov);
+    // Phase 2: 从队列取新数据
+    //   iov 数据的释放由 sendmsg_zc 的 NOTIF CQE 负责，此处不做任何 free
+    Buffer bufs[BATCH_COUNT];
+    int n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
+    if (n == 0) {
+        sending_.store(false, std::memory_order_release);
+        // Double Check: 防止 sending_=false 与其他线程 enqueue 之间的竞态
+        if (!wque_.empty() && !sending_.exchange(true, std::memory_order_acq_rel)) {
+            submit_send(nullptr, auto_submit);
         }
-
-        Buffer bufs[BATCH_COUNT];
-        int n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
-        if (n == 0) {
-            if (sbuf) {
-                delete sbuf;
-                RingEvent::destroy(ev);
-            }
-            sending_.store(false, std::memory_order_release);
-            // Double Check: 防止 sending_=false 与其他线程 enqueue 之间的竞态
-            if (!wque_.empty() && !sending_.exchange(true, std::memory_order_acq_rel)) {
-                submit_send(nullptr, auto_submit);
-            }
-            return;
-        }
-
-        if (!sbuf) {
-            sbuf = new SendBuf;
-        }
-
-        auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
-        for (int i = 0; i < n; ++i) {
-            iovs[i] = bufs[i];
-            sbuf->total += iovs[i].iov_len;
-        }
-        sbuf->mh.msg_iov = iovs;
-        sbuf->mh.msg_iovlen = n;
+        return;
     }
 
-    // Phase 3: 提交 sendmsg
+    sbuf = new SendBuf;
+    auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
+    for (int i = 0; i < n; ++i) {
+        iovs[i] = bufs[i];
+        sbuf->total += iovs[i].iov_len;
+    }
+    sbuf->mh.msg_iov = iovs;
+    sbuf->mh.msg_iovlen = n;
+
+    // Phase 3: 提交 sendmsg_zc，每次提交都创建新的 ev，不复用
     inflight_ = true;
-
-    if (!ev) {
-        ev = RingEvent::create(RingCommand::S_SEND, cfd_, sbuf, generation_);
-    } else {
-        ev->cmd = RingCommand::S_SEND;
-        ev->ex  = sbuf;
-        ev->gen = generation_;
-    }
+    ev = RingEvent::create(RingCommand::S_SEND, cfd_, sbuf, generation_);
 
     auto* sqe = acquire_sqe(reactor_->uring());
     ::io_uring_sqe_set_data(sqe, ev);
-    ::io_uring_prep_sendmsg(sqe, cfd_, &sbuf->mh, MSG_NOSIGNAL);
+    ::io_uring_prep_sendmsg_zc(sqe, cfd_, &sbuf->mh, MSG_NOSIGNAL);
+
+    if (auto_submit) {
+        int ret = ::io_uring_submit(reactor_->uring());
+        ASSERT(ret >= 0, "::io_uring_submit failed");
+    }
+}
+
+
+void
+xq::net::Session::submit_send_prepared(SendBuf* sbuf, bool auto_submit) noexcept {
+    ASSERT(::pthread_self() == reactor_->thread_id(), "只允许 session 的所属 reactor 线程调用 submit_send 函数");
+    ASSERT(!inflight_, "submit_send(SendBuf*) 调用时 inflight_ 应为 false");
+
+    inflight_ = true;
+    auto* ev = RingEvent::create(RingCommand::S_SEND, cfd_, sbuf, generation_);
+    auto* sqe = acquire_sqe(reactor_->uring());
+    ::io_uring_sqe_set_data(sqe, ev);
+    ::io_uring_prep_sendmsg_zc(sqe, cfd_, &sbuf->mh, MSG_NOSIGNAL);
 
     if (auto_submit) {
         int ret = ::io_uring_submit(reactor_->uring());
