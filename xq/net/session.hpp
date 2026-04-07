@@ -134,7 +134,7 @@ public:
      * 
      * @param ctr: 当前线程的 reactor 
      */
-    int
+    void
     send(Reactor* ctr, const uint8_t* data, size_t datalen, bool auto_submit = false) noexcept;
 
 

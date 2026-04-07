@@ -100,7 +100,7 @@ xq::net::Session::submit_recv(bool auto_submit, RingEvent* ev) noexcept {
 }
 
 
-int
+void
 xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool auto_submit) noexcept {
     Buffer buf;
     buf.set_data(data, datalen);
@@ -117,8 +117,6 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool a
             );
         }
     }
-
-    return 0;
 }
 
 
@@ -126,85 +124,64 @@ void
 xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
     ASSERT(::pthread_self() == reactor_->thread_id(), "只允许 session 的所属 reactor 线程调用 submit_send 函数");
 
+    // Phase 1: 处理上一次 S_SEND 完成回调
+    SendBuf* sbuf = nullptr;
     if (ev && ev->cmd == RingCommand::S_SEND) {
         inflight_ = false;
+        sbuf = (SendBuf*)ev->ex;
     }
 
     if (inflight_) {
         return;
     }
 
-    SendBuf* sbuf = ev && ev->cmd == RingCommand::S_SEND ? (SendBuf*)ev->ex : nullptr;
-
-    if (sbuf) {
-        if (sbuf->total == 0) {
+    // Phase 2: 准备下一批发送数据
+    //   sbuf->total > 0: 部分发送未完成，直接用现有 sbuf 继续
+    //   sbuf == nullptr || sbuf->total == 0: 需要从队列取新数据
+    if (!sbuf || sbuf->total == 0) {
+        if (sbuf) {
             for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
-                auto& iov = sbuf->mh.msg_iov[i];
-                xq::utils::free(iov.iov_base);
+                xq::utils::free(sbuf->mh.msg_iov[i].iov_base);
             }
             xq::utils::free(sbuf->mh.msg_iov);
-        
-            // 发送完成, 再次从队列中获取数据
-            Buffer bufs[BATCH_COUNT];
-            int n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
-            if (n == 0) {
+        }
+
+        Buffer bufs[BATCH_COUNT];
+        int n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
+        if (n == 0) {
+            if (sbuf) {
                 delete sbuf;
                 RingEvent::destroy(ev);
-                sending_.store(false, std::memory_order_release);
-                if (!wque_.empty() && !sending_.exchange(true, std::memory_order_acq_rel)) {
-                    submit_send(nullptr, auto_submit);
-                }
-                return;
             }
-
-            auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
-            for (int i = 0; i < n; ++i) {
-                iovs[i] = bufs[i];
-                sbuf->total += iovs[i].iov_len;
+            sending_.store(false, std::memory_order_release);
+            // Double Check: 防止 sending_=false 与其他线程 enqueue 之间的竞态
+            if (!wque_.empty() && !sending_.exchange(true, std::memory_order_acq_rel)) {
+                submit_send(nullptr, auto_submit);
             }
-            sbuf->mh.msg_iov = iovs;
-            sbuf->mh.msg_iovlen = n;
+            return;
         }
 
-        // 如果有未发送完成的数据, 需要等到发送完成为止
-        auto* sqe = acquire_sqe(reactor_->uring());
-        ::io_uring_sqe_set_data(sqe, ev);
-        ::io_uring_prep_sendmsg(sqe, cfd_, &sbuf->mh, MSG_NOSIGNAL);
-
-        if (auto_submit) {
-            int ret = ::io_uring_submit(reactor_->uring());
-            ASSERT(ret >= 0, "::io_uring_submit failed");
+        if (!sbuf) {
+            sbuf = new SendBuf;
         }
 
-        return;
+        auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
+        for (int i = 0; i < n; ++i) {
+            iovs[i] = bufs[i];
+            sbuf->total += iovs[i].iov_len;
+        }
+        sbuf->mh.msg_iov = iovs;
+        sbuf->mh.msg_iovlen = n;
     }
 
-    Buffer bufs[BATCH_COUNT];
-    int n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
-    if (n == 0) {
-        return;
-    }
-
-    sbuf = new SendBuf;
-    auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
-
-    for (int i = 0; i < n; ++i) {
-        auto& iov = iovs[i];
-        auto& buf = bufs[i];
-        iov = buf;
-        sbuf->total += iov.iov_len;
-    }
-
-    sbuf->mh.msg_iov = iovs;
-    sbuf->mh.msg_iovlen = n;
-
+    // Phase 3: 提交 sendmsg
     inflight_ = true;
 
     if (!ev) {
         ev = RingEvent::create(RingCommand::S_SEND, cfd_, sbuf, generation_);
     } else {
         ev->cmd = RingCommand::S_SEND;
-        ev->ex = sbuf;
+        ev->ex  = sbuf;
         ev->gen = generation_;
     }
 
