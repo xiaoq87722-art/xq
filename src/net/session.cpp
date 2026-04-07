@@ -127,11 +127,6 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
 
     // Phase 1: 处理上一次 S_SEND 完成回调
     SendBuf* sbuf = nullptr;
-    if (ev && ev->cmd == RingCommand::S_SEND) {
-        inflight_ = false;
-        sbuf = (SendBuf*)ev->ex;
-    }
-
     if (inflight_) {
         return;
     }

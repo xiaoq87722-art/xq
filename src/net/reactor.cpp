@@ -153,6 +153,18 @@ xq::net::Reactor::run() noexcept {
     release_timer(this, timer);
 
     // Step 6, 释放 io_uring 和 buf_ring
+    io_uring_for_each_cqe(&uring_, head, cqe) {
+        count++;
+        auto* ev = (RingEvent*)io_uring_cqe_get_data(cqe);
+        if (ev && ev->cmd == RingCommand::S_SEND) {
+            on_s_send(cqe, ev);
+        }
+    }
+
+    if (count > 0) {
+        io_uring_cq_advance(&uring_, count);
+    }
+
     release_io_uring_with_br(&uring_, br_, brbufs_);
 
     for (auto& s: sessions_) {
@@ -174,7 +186,9 @@ void
 xq::net::Reactor::on_r_accept(io_uring_cqe*, RingEvent* ev) noexcept {
     Session* s = (Session*)ev->ex;
     add_session(s);
-    s->submit_recv();
+    if (s->valid()) {
+        s->submit_recv();
+    }
     RingEvent::destroy(ev);
 }
 
@@ -257,7 +271,6 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
         remove_session(sess);
         RingEvent::destroy(ev);
-        sess->release();
     }
 }
 
@@ -313,10 +326,10 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
                     ::memcpy(new_iovs[i].iov_base, (uint8_t*)src.iov_base + offset, len);
                 }
 
-                auto* new_sbuf          = new SendBuf;
-                new_sbuf->mh.msg_iov    = new_iovs;
+                auto* new_sbuf = new SendBuf;
+                new_sbuf->mh.msg_iov = new_iovs;
                 new_sbuf->mh.msg_iovlen = remaining;
-                new_sbuf->total         = sbuf->total;
+                new_sbuf->total = sbuf->total;
                 sess->submit_send_prepared(new_sbuf);
             } else {
                 // 全部发完，从队列取下一批
