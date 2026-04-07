@@ -153,10 +153,11 @@ xq::net::Reactor::run() noexcept {
     release_timer(this, timer);
 
     // Step 6, 释放 io_uring 和 buf_ring
+    count = 0;
     io_uring_for_each_cqe(&uring_, head, cqe) {
         count++;
         auto* ev = (RingEvent*)io_uring_cqe_get_data(cqe);
-        if (ev && ev->cmd == RingCommand::S_SEND) {
+        if (ev && ev->cmd == RingCommand::S_SEND && (cqe->flags & IORING_CQE_F_NOTIF)) {
             on_s_send(cqe, ev);
         }
     }
@@ -298,7 +299,7 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         auto* sess = it->second;
         sess->inflight_ = false;
 
-        if (res >= 0) {
+        if (res > 0) {
             sbuf->total -= res;
 
             if (sbuf->total > 0) {
@@ -332,19 +333,13 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
                 new_sbuf->total = sbuf->total;
                 sess->submit_send_prepared(new_sbuf);
             } else {
-                // 全部发完，从队列取下一批
                 sess->submit_send();
             }
-            // ev 不销毁，等 NOTIF CQE 来了再 free
-            return;
         } else if (res != -ECANCELED) {
             xERROR("{} send failed: [{}]{}", sess->to_string(), -res, ::strerror(-res));
             sess->submit_cancel();
         }
-        // 出错: session 即将被 cancel，ev 不销毁，等 NOTIF
     }
-
-    // session 已不存在或出错: ev 不销毁，等 NOTIF 来 free iov
 }
 
 
