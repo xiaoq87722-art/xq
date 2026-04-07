@@ -99,6 +99,26 @@ private:
     on_r_send(io_uring_cqe* cqe, RingEvent* ev) noexcept;
 
 
+    void
+    add_session(Session* s) noexcept {
+        if (s->listener()->event()->on_connected(s) != 0) {
+            s->release();
+            return;
+        }
+
+        sessions_.insert(std::make_pair(s->fd(), s));
+    }
+
+
+    void
+    remove_session(Session* s) noexcept {
+        s->listener()->event()->on_disconnected(s);
+        sessions_.erase(s->fd());
+        s->release();
+    }
+
+
+    /** io_uring */
     io_uring uring_ {};
 
     /** reactor 负载值 */

@@ -24,7 +24,7 @@ public:
     virtual void on_stopped(Listener* listener) {}
     virtual int on_connected(Session* sess) { return 0; }
     virtual void on_disconnected(Session* sess) {}
-    virtual int on_data(Session* sess, const Buffer& buf) = 0;
+    virtual int on_data(Session* sess, const uint8_t* data, size_t len) = 0;
 }; // class ListenerEvent;
 
 

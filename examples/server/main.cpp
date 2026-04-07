@@ -16,8 +16,8 @@ public:
 
 
     virtual int
-    on_data(xq::net::Session* s, const xq::net::Buffer& buf) override {
-        s->send(s->reactor(), (uint8_t*)buf.data, buf.len);
+    on_data(xq::net::Session* s, const uint8_t* data, size_t len) override {
+        s->send(s->reactor(), (uint8_t*)data, len);
         return 0;
     }
 };

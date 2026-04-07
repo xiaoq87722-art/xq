@@ -73,8 +73,8 @@ private:
     int snd_buf_           { 1024 * 256 };
     int timeout_           { 40 };
     int per_max_conn_      { 1000 };
-    int br_buf_size_       { 1024 };
-    int br_buf_count_      { 16 };
+    int br_buf_size_       { 1024 * 4 };
+    int br_buf_count_      { 4096 };
     int hb_check_interval_ { 5 };
 }; // class Conf;
 

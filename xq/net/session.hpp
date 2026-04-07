@@ -147,6 +147,7 @@ public:
 
 
 private:
+    /** 套接字 */
     SOCKET cfd_ { INVALID_SOCKET };
 
     /** closed by server 是否由服务端主动关闭 */

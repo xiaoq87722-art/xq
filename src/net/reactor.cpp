@@ -173,14 +173,8 @@ xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
 void
 xq::net::Reactor::on_r_accept(io_uring_cqe*, RingEvent* ev) noexcept {
     Session* s = (Session*)ev->ex;
-
-    if (s->listener()->event()->on_connected(s) != 0) {
-        s->release();
-    } else {
-        sessions_.insert(std::make_pair(ev->fd, s));
-        s->submit_recv();
-    }
-    
+    add_session(s);
+    s->submit_recv();
     RingEvent::destroy(ev);
 }
 
@@ -224,7 +218,13 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         auto bid = (uint16_t)(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
         auto buf = brbufs_[bid];
 
-        sess->listener()->event()->on_data(sess, Buffer{ buf, (uint32_t)res });
+        if (sess->listener()->event()->on_data(sess, buf, res)) {
+            recycle_buf_ring(br_, buf, bid);
+            sess->submit_cancel();
+            RingEvent::destroy(ev);
+            return;
+        }
+
         sess->set_active_time(tnow_);
         loaded_.fetch_add(res, std::memory_order_relaxed);
 
@@ -235,8 +235,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
                 sess->submit_recv(false, ev);
             } else {
                 RingEvent::destroy(ev);
-                sessions_.erase(sess->fd());
-                sess->release();
+                remove_session(sess);
             }
         }
     } else {
@@ -258,7 +257,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
             xINFO("EOF: {}", sess->to_string());
         }
 
-        sessions_.erase(ev->fd);
+        remove_session(sess);
         RingEvent::destroy(ev);
         sess->release();
     }

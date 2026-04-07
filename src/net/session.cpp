@@ -59,8 +59,6 @@ xq::net::Session::release() noexcept {
     int n = 0;
     Buffer bufs[BATCH_COUNT];
     while(n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT), n > 0);
-
-    listener_->event()->on_disconnected(this);
 }
 
 

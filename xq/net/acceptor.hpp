@@ -42,7 +42,7 @@ public:
 
 
     bool
-    running() const {
+    running() const noexcept {
         return state_ == STATE_RUNNING;
     }
 
@@ -58,7 +58,10 @@ public:
 
 
     void
-    stop() noexcept;
+    stop() noexcept {
+        int state_running = STATE_RUNNING;
+        state_.compare_exchange_strong(state_running, STATE_STOPPING);
+    }
 
 
 private:
