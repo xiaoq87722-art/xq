@@ -220,7 +220,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
         if (sess->listener()->event()->on_data(sess, buf, res)) {
             recycle_buf_ring(br_, buf, bid);
-            sess->submit_cancel();
+            remove_session(sess);
             RingEvent::destroy(ev);
             return;
         }

@@ -75,6 +75,11 @@ struct Buffer {
 
     void
     set_data(const void* data, uint32_t datalen) {
+        if (datalen > len) {
+            xq::utils::free(this->data);
+            this->data = nullptr;
+        }
+
         if (!this->data) {
             this->data = xq::utils::malloc(datalen);
         }

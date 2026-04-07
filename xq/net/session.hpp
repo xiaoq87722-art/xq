@@ -43,7 +43,7 @@ public:
 
     bool
     valid() const {
-        return cfd_ > 0 && cfd_ != INVALID_SOCKET;
+        return cfd_ > 0;
     }
 
 
