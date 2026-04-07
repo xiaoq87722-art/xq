@@ -35,7 +35,7 @@ get_reactor(const std::vector<xq::net::Reactor::Ptr>& reactors) {
 
 static void
 init_reactors(std::vector<xq::net::Reactor::Ptr>& reactors, std::vector<std::thread>& threads) {
-    const uint32_t nthread = std::thread::hardware_concurrency() - 1;
+    const auto nthread = std::max(1u, std::thread::hardware_concurrency() - 1);
 
     for (uint32_t i = 0; i < nthread; ++i) {
         auto reactor = xq::net::Reactor::create();

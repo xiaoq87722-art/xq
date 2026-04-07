@@ -236,7 +236,9 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         if (sess->listener()->event()->on_data(sess, buf, res)) {
             recycle_buf_ring(br_, buf, bid);
             remove_session(sess);
-            RingEvent::destroy(ev);
+            if (!(cqe->flags & IORING_CQE_F_MORE)) {
+                RingEvent::destroy(ev);
+            }
             return;
         }
 
