@@ -226,8 +226,6 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         }
 
         sess->set_active_time(tnow_);
-        loaded_.fetch_add(res, std::memory_order_relaxed);
-
         recycle_buf_ring(br_, buf, bid);
 
         if (!(cqe->flags & IORING_CQE_F_MORE)) {
@@ -298,7 +296,6 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
                 }
             }
 
-            loaded_.fetch_add(res, std::memory_order_relaxed);
             sess->submit_send(ev);
             return; 
         } else if (res != -ECANCELED) {

@@ -45,9 +45,9 @@ public:
     }
 
 
-    uint64_t
-    loaded() const {
-        return loaded_;
+    int
+    conn_count() const {
+        return conns_.load(std::memory_order_relaxed);
     }
 
 
@@ -107,6 +107,7 @@ private:
         }
 
         sessions_.insert(std::make_pair(s->fd(), s));
+        conns_.fetch_add(1, std::memory_order_relaxed);
     }
 
 
@@ -115,14 +116,12 @@ private:
         s->listener()->event()->on_disconnected(s);
         sessions_.erase(s->fd());
         s->release();
+        conns_.fetch_sub(1, std::memory_order_relaxed);
     }
 
 
     /** io_uring */
     io_uring uring_ {};
-
-    /** reactor 负载值 */
-    std::atomic<uint64_t> loaded_ { 0 };
 
     /** 当前时间, 当前时间不是UNIX时间戳而是系统运行时间 */
     uint64_t tnow_ { 0 };
@@ -135,6 +134,7 @@ private:
     
     /** 会话 */
     std::unordered_map<SOCKET, Session*> sessions_;
+    std::atomic<int> conns_ { 0 };
 
     /** buf ring 缓冲区 */
     io_uring_buf_ring* br_ { nullptr };
