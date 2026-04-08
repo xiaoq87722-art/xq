@@ -76,8 +76,6 @@ xq::net::Session::submit_cancel(bool auto_submit) noexcept {
         int ret = ::io_uring_submit(reactor_->uring());
         ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
     }
-
-    cbs_ = true;
 }
 
 
