@@ -260,7 +260,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
             } else if (res == -EINVAL) {
                 xFATAL("不支持 multishot 的旧版本内核上运行");
             } else if (res == -ECANCELED) {
-                sess->cbs_ = false;
+                sess->cbs_ = true;
                 xINFO("服务端 {} 主动断开连接 {}", sess->listener()->to_string(), sess->to_string());
             } else {
                 xERROR("{} recv error: [{}]{}", sess->to_string(), -res, ::strerror(-res));
