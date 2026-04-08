@@ -16,20 +16,10 @@ signal_handle(int sig) {
 }
 
 
-static xq::net::Reactor*
+static inline xq::net::Reactor*
 get_reactor(const std::vector<xq::net::Reactor::Ptr>& reactors) {
-    auto reactor = reactors[0];
-    uint64_t min_count = reactor->conn_count();
-
-    for (size_t i = 1, n = reactors.size(); i < n; ++i) {
-        uint64_t cur_count = reactors[i]->conn_count();
-        if (cur_count < min_count) {
-            reactor = reactors[i];
-            min_count = cur_count;
-        }
-    }
-
-    return reactor;
+    static size_t index { 0 };
+    return reactors[index++ % reactors.size()];
 }
 
 

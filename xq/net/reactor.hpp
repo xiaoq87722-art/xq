@@ -46,12 +46,6 @@ public:
     }
 
 
-    int
-    conn_count() const {
-        return conns_.load(std::memory_order_relaxed);
-    }
-
-
     void
     run() noexcept;
 
@@ -126,7 +120,6 @@ private:
     
     /** 会话 */
     std::vector<Session*> sessions_;
-    std::atomic<int> conns_ { 0 };
 
     /** buf ring 缓冲区 */
     io_uring_buf_ring* br_ { nullptr };

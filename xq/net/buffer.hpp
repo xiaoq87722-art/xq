@@ -81,22 +81,19 @@ struct Buffer {
 
     void
     set_data(const void* data, uint32_t datalen) {
-        ASSERT(data && datalen > 0, "无效的参数");
+        ASSERT(datalen > 0 && data, "无效的参数");
 
-        // 只有当所需数据长度超过当前容量时才重新分配内存
         if (datalen > cap) {
             if (this->data) {
                 xq::utils::free(this->data);
             }
-            // 如果 datalen 为 0，则不分配内存
+
             this->data = (datalen > 0) ? xq::utils::malloc(datalen) : nullptr;
-            this->cap = datalen; // 更新容量
+            this->cap = datalen;
         }
 
-        this->len = datalen; // 更新数据长度
-        if (data && datalen > 0) { // 只有当有数据且长度大于0时才拷贝
-            ::memcpy(this->data, data, datalen);
-        }
+        this->len = datalen;
+        ::memcpy(this->data, data, datalen);
     }
 };
 

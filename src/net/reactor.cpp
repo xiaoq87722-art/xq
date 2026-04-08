@@ -205,7 +205,9 @@ xq::net::Reactor::on_r_timer(io_uring_cqe*, RingEvent* ev) noexcept {
         s->submit_cancel();
     }
 
-    setup_timer(this, ev);
+    if (running()) {
+        setup_timer(this, ev);
+    }
 }
 
 
@@ -357,7 +359,6 @@ xq::net::Reactor::add_session(Session* s) noexcept {
     }
 
     sessions_[s->fd()] = s;
-    conns_.fetch_add(1, std::memory_order_relaxed);
 }
 
 
@@ -366,5 +367,4 @@ xq::net::Reactor::remove_session(Session* s) noexcept {
     s->listener()->event()->on_disconnected(s);
     sessions_[s->fd()] = nullptr;
     s->release();
-    conns_.fetch_sub(1, std::memory_order_relaxed);
 }
