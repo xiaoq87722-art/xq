@@ -51,6 +51,12 @@ public:
     get_session(SOCKET fd) noexcept {
         return sslots_[fd];
     }
+
+
+    int
+    max_conn() const noexcept {
+        return sslots_.size();
+    }
     
 
     void

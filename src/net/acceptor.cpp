@@ -107,7 +107,6 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
     unsigned head, count;
 
     // Step 5, 事件循环
-    xINFO("✅ 1 acceptor 线程, {} reactor 线程 开始工作 ✅", threads.size());
     state_ = STATE_RUNNING;
     while (1) {
         ret = ::io_uring_submit_and_wait(&uring_, 1);

@@ -6,6 +6,7 @@
 #include "xq/utils/memory.hpp"
 #include <sys/timerfd.h>
 #include <list>
+#include <algorithm>
 
 
 static inline void
@@ -155,11 +156,13 @@ xq::net::Reactor::run() noexcept {
     // Step 6, 释放 io_uring 和 buf_ring
     release_io_uring_with_br(&uring_, br_, brbufs_);
 
-    for (auto& s: sessions_) {
-        s.second->release();
+    for (auto s : sessions_) {
+        if (s) {
+            s->release();
+        }
     }
-    sessions_.clear();
 
+    std::fill(sessions_.begin(), sessions_.end(), nullptr);
     state_ = STATE_STOPPED;
 }
 
@@ -168,8 +171,10 @@ void
 xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
     RingEvent::destroy(ev);
 
-    for (auto& s: sessions_) {
-        s.second->submit_cancel();
+    for (auto* s : sessions_) {
+        if (s) {
+            s->submit_cancel();
+        }
     }
 }
 
@@ -190,9 +195,8 @@ xq::net::Reactor::on_r_timer(io_uring_cqe*, RingEvent* ev) noexcept {
     std::vector<Session*> rmlist;
     const auto timeout = Conf::instance()->timeout();
 
-    for (auto &itr: sessions_) {
-        auto *s = itr.second;
-        if (s->active_time() + timeout < tnow_) {
+    for (auto* s : sessions_) {
+        if (s && s->active_time() + timeout < tnow_) {
             rmlist.emplace_back(s);
         }
     }
@@ -210,8 +214,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
     auto res = cqe->res;
     auto sess = (Session*)ev->ex;
 
-    auto it = sessions_.find(ev->fd);
-    if (it == sessions_.end() || it->second != sess || ev->gen != sess->gen()) {
+    if (ev->fd < 0 || ev->fd >= (SOCKET)sessions_.size() || sessions_[ev->fd] != sess || ev->gen != sess->gen()) {
         // 如果世代号不匹配，说明是上一个连接遗留的延迟 CQE
         if (!(cqe->flags & IORING_CQE_F_MORE)) {
             RingEvent::destroy(ev);
@@ -286,10 +289,9 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
     // 第一个 CQE: 发送结果，不能 free iov，等 NOTIF
     auto res = cqe->res;
-    auto it = sessions_.find(ev->fd);
 
-    if (it != sessions_.end() && it->second->gen() == ev->gen) {
-        auto* sess = it->second;
+    if (ev->fd >= 0 && ev->fd < (SOCKET)sessions_.size() && sessions_[ev->fd] && sessions_[ev->fd]->gen() == ev->gen) {
+        auto* sess = sessions_[ev->fd];
         sess->inflight_ = false;
 
         if (res > 0) {
@@ -340,8 +342,7 @@ void
 xq::net::Reactor::on_r_send(io_uring_cqe*, RingEvent* ev) noexcept {
     auto sess = (Session*)ev->ex;
 
-    auto it = sessions_.find(ev->fd);
-    if (it != sessions_.end() && it->second == sess && ev->gen == sess->gen()) {
+    if (ev->fd >= 0 && ev->fd < (SOCKET)sessions_.size() && sessions_[ev->fd] == sess && ev->gen == sess->gen()) {
         sess->submit_send();
     }
 
@@ -356,7 +357,7 @@ xq::net::Reactor::add_session(Session* s) noexcept {
         return;
     }
 
-    sessions_.insert(std::make_pair(s->fd(), s));
+    sessions_[s->fd()] = s;
     conns_.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -364,7 +365,7 @@ xq::net::Reactor::add_session(Session* s) noexcept {
 void
 xq::net::Reactor::remove_session(Session* s) noexcept {
     s->listener()->event()->on_disconnected(s);
-    sessions_.erase(s->fd());
+    sessions_[s->fd()] = nullptr;
     s->release();
     conns_.fetch_sub(1, std::memory_order_relaxed);
 }

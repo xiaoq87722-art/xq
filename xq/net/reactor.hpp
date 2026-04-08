@@ -4,9 +4,10 @@
 
 #include "xq/net/net.in.h"
 #include "xq/net/session.hpp"
+#include "xq/net/conf.hpp"
 #include <atomic>
 #include <thread>
-#include <unordered_map>
+#include <vector>
 #include <liburing.h>
 
 
@@ -71,8 +72,12 @@ public:
 
 
 private:
-    explicit Reactor() noexcept
-    {}
+    explicit Reactor() noexcept {
+        sessions_.resize(
+            std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10,
+            nullptr
+        );
+    }
 
 
     void
@@ -120,7 +125,7 @@ private:
     std::atomic<int> state_ { STATE_STOPPED };
     
     /** 会话 */
-    std::unordered_map<SOCKET, Session*> sessions_;
+    std::vector<Session*> sessions_;
     std::atomic<int> conns_ { 0 };
 
     /** buf ring 缓冲区 */

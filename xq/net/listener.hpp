@@ -41,11 +41,10 @@ public:
 
     ~Listener() noexcept {
         if (lfd_ != INVALID_SOCKET) {
+            ev_->on_stopped(this);
             ::close(lfd_);
             lfd_ = INVALID_SOCKET;
         }
-
-        ev_->on_stopped(this);
     }
 
 
