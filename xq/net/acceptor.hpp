@@ -32,7 +32,7 @@ public:
     }
 
 
-    ~Acceptor() noexcept;
+    ~Acceptor() noexcept {}
 
 
     io_uring*

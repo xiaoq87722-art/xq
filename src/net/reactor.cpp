@@ -93,7 +93,7 @@ xq::net::Reactor::run() noexcept {
     // Step 4, IO LOOP
     state_ = STATE_RUNNING;
     while (true) {
-        if (should_stop && io_uring_cq_ready(&uring_) == 0) {
+        if (should_stop && ::io_uring_sq_ready(&uring_) == 0) {
             break;
         }
 
@@ -156,13 +156,6 @@ xq::net::Reactor::run() noexcept {
     // Step 6, 释放 io_uring 和 buf_ring
     release_io_uring_with_br(&uring_, br_, brbufs_);
 
-    for (auto s : sessions_) {
-        if (s) {
-            s->release();
-        }
-    }
-
-    std::fill(sessions_.begin(), sessions_.end(), nullptr);
     state_ = STATE_STOPPED;
 }
 

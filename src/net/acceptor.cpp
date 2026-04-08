@@ -59,15 +59,6 @@ release_reactors(std::vector<xq::net::Reactor::Ptr>& reactors, std::vector<std::
 }
 
 
-xq::net::Acceptor::~Acceptor() noexcept {
-    for (auto* s: sslots_) {
-        if (s) {
-            delete s;
-        }
-    }
-}
-
-
 void
 xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
     int stopped = STATE_STOPPED;
@@ -169,5 +160,12 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
     // Step 9, 释放 io_uring
     ::io_uring_queue_exit(&uring_);
 
+    for (auto s: sslots_) {
+        if (s) {
+            delete s;
+        }
+    }
+
+    std::fill(sslots_.begin(), sslots_.end(), nullptr);
     state_ = STATE_STOPPED;
 }
