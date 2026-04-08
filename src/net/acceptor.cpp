@@ -105,7 +105,6 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
     io_uring_cqe* cqe = nullptr;
     SOCKET cfd = INVALID_SOCKET;
     unsigned head, count;
-    bool should_stop = false;
 
     // Step 5, 事件循环
     xINFO("✅ 1 acceptor 线程, {} reactor 线程 开始工作 ✅", threads.size());
@@ -125,11 +124,6 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
             count++;
             auto l = (Listener*)::io_uring_cqe_get_data(cqe);
             if (!l) {
-                if (cqe->res == 1) {
-                    // 收到 停止信息
-                    should_stop = true;
-                    continue;
-                }
                 continue;
             }
 
@@ -167,7 +161,7 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
             ::io_uring_cq_advance(&uring_, count);
         }
 
-        if (should_stop || !running()) {
+        if (!running()) {
             break;
         }
     }

@@ -73,6 +73,7 @@ private:
     }
 
 
+    /** io_uring */
     io_uring uring_ {};
 
     /** acceptor 状态 */

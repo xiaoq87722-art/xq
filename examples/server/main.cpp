@@ -26,15 +26,18 @@ public:
 int
 main(int, char**) {
     auto echo = new EchoEvent;
-    auto l1 = new xq::net::Listener(echo, ":8888");
-    auto l2 = new xq::net::Listener(echo, ":9999");
 
-    auto ls = std::vector<xq::net::Listener*>{ l1, l2 };
+    auto ls = std::vector<xq::net::Listener*> { 
+        new xq::net::Listener(echo, ":8888"), 
+        new xq::net::Listener(echo, ":9999"),
+    };
 
     xq::net::Acceptor::instance()->run(ls);
 
-    delete l1;
-    delete l2;
+    for (auto l: ls) {
+        delete l;
+    }
+
     delete echo;
     return 0;
 }
