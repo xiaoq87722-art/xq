@@ -11,9 +11,9 @@ namespace utils {
 inline void* 
 malloc(size_t n, bool auto_init = false) {
     if (auto_init) {
-        return ::mi_malloc(n);
+        return ::mi_zalloc(n);
     }
-    return ::mi_zalloc(n);
+    return ::mi_malloc(n);
 }
 
 

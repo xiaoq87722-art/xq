@@ -114,6 +114,18 @@ public:
     }
 
 
+    void*
+    get_user_data() noexcept {
+        return user_data_;
+    }
+
+
+    void
+    set_user_data(void* data) noexcept {
+        user_data_ = data;
+    }
+
+
     /**
      * @brief 取消 session 会话. 
      *        该函数只能在 session 所属的 reactor 线程中调用.

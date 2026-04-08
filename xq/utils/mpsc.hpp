@@ -30,6 +30,7 @@ class MPSC {
         explicit SingleQueue(size_t size) noexcept
             : size_(size), mask_(size - 1),
               buffer_((Cell*)xq::utils::malloc(sizeof(Cell) * size)) {
+            ASSERT(size > 0 && (size & (size - 1)) == 0, "SingleQueue 的 size 必须是 2 的幂次方");
             for (size_t i = 0; i < size_; ++i) {
                 new (&buffer_[i]) Cell();
                 buffer_[i].seq.store(i, std::memory_order_relaxed);
@@ -127,6 +128,8 @@ public:
      */
     explicit MPSC(size_t shard_count, size_t per_shard_size) noexcept
         : shard_mask_(shard_count - 1) {
+        ASSERT(shard_count > 0 && (shard_count & (shard_count - 1)) == 0, "MPSC 的 shard_count 必须是 2 的幂次方");
+        ASSERT(per_shard_size > 0 && (per_shard_size & (per_shard_size - 1)) == 0, "MPSC 的 per_shard_size 必须是 2 的幂次方");
         for (size_t i = 0; i < shard_count; ++i) {
             shards_.emplace_back(std::make_unique<SingleQueue>(per_shard_size));
         }

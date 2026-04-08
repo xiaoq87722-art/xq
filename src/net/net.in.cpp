@@ -41,7 +41,8 @@ xq::net::tcp_listen(const char* host, int rcv_buf, int snd_buf) noexcept {
 
     int ret = ::getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res);
     if (ret) {
-        return -errno;
+        xERROR("getaddrinfo failed: [{}] {}", ret, ::gai_strerror(ret));
+        return INVALID_SOCKET;
     }
 
     SOCKET lfd = INVALID_SOCKET;

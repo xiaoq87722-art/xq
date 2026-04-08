@@ -91,7 +91,11 @@ xq::net::Reactor::run() noexcept {
 
     // Step 4, IO LOOP
     state_ = STATE_RUNNING;
-    while (1) {
+    while (true) {
+        if (should_stop && io_uring_cq_ready(&uring_) == 0) {
+            break;
+        }
+
         ret = ::io_uring_submit_and_wait(&uring_, 1);
         if (ret < 0) {
             xERROR("io_uring_submit_and_wait failed: {}, {}", -ret, ::strerror(-ret));
@@ -141,10 +145,6 @@ xq::net::Reactor::run() noexcept {
         if (count > 0) {
             ::io_uring_cq_advance(&uring_, count);
         }
-
-        if (should_stop) {
-            break;
-        }
     }
 
     state_ = STATE_STOPPING;
@@ -153,19 +153,6 @@ xq::net::Reactor::run() noexcept {
     release_timer(this, timer);
 
     // Step 6, 释放 io_uring 和 buf_ring
-    count = 0;
-    io_uring_for_each_cqe(&uring_, head, cqe) {
-        count++;
-        auto* ev = (RingEvent*)io_uring_cqe_get_data(cqe);
-        if (ev && ev->cmd == RingCommand::S_SEND && (cqe->flags & IORING_CQE_F_NOTIF)) {
-            on_s_send(cqe, ev);
-        }
-    }
-
-    if (count > 0) {
-        io_uring_cq_advance(&uring_, count);
-    }
-
     release_io_uring_with_br(&uring_, br_, brbufs_);
 
     for (auto& s: sessions_) {
@@ -180,6 +167,10 @@ xq::net::Reactor::run() noexcept {
 void
 xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
     RingEvent::destroy(ev);
+
+    for (auto& s: sessions_) {
+        s.second->submit_cancel();
+    }
 }
 
 

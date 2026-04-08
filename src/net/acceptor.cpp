@@ -141,7 +141,11 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
                 continue;
             }
 
-            ASSERT(cfd < sslots_.size(), "出现了 cfd {} 超出 MAX session {} 的情况");
+            if (cfd > sslots_.size()) {
+                xWARN("超过最大连接限制, {}", sslots_.size());
+                ::close(cfd);
+                continue;
+            }
 
             auto s = sslots_[cfd];
             if (!s) {

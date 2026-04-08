@@ -30,6 +30,7 @@ xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     }
 
     cfd_ = cfd;
+    cbs_ = false;
     listener_ = l;
     reactor_ = r;
     generation_++; 
@@ -105,7 +106,7 @@ void
 xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool auto_submit) noexcept {
     Buffer buf;
     buf.set_data(data, datalen);
-    ASSERT(wque_.enqueue(std::move(buf)), " 发送队列已满, 发送失败", to_string());
+    ASSERT(wque_.enqueue(std::move(buf)), " 发送队列已满, 发送失败");
 
     if (!sending_.exchange(true, std::memory_order_acq_rel)) {
         if (ctr == reactor_) {
