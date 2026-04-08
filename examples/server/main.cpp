@@ -20,6 +20,19 @@ public:
         s->send(s->reactor(), (uint8_t*)data, len);
         return 0;
     }
+
+
+    virtual int
+    on_connected(xq::net::Session* s) override {
+        xINFO("{} 连接成功 ✅", s->to_string());
+        return 0;
+    }
+
+
+    virtual void
+    on_disconnected(xq::net::Session* s) override {
+        xINFO("服务端 {} {} 断开连接 ❎", s->closed_by_server() ? "主动" : "被动", s->to_string());
+    }
 };
 
 

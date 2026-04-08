@@ -43,7 +43,6 @@ xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     while(n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT), n > 0);
 
     sending_.store(false, std::memory_order_release);
-    xINFO("{} 连接成功", to_string());
 }
 
 
@@ -53,7 +52,6 @@ xq::net::Session::release() noexcept {
         return;
     }
 
-    xINFO("{} 断开连接", to_string());
     ::close(cfd_);
     cfd_ = INVALID_SOCKET;
 
@@ -78,6 +76,8 @@ xq::net::Session::submit_cancel(bool auto_submit) noexcept {
         int ret = ::io_uring_submit(reactor_->uring());
         ASSERT(ret >= 0, "::io_uring_submit failed: [{}] {}", -ret, ::strerror(-ret));
     }
+
+    cbs_ = true;
 }
 
 

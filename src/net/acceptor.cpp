@@ -35,7 +35,8 @@ get_reactor(const std::vector<xq::net::Reactor::Ptr>& reactors) {
 
 static void
 init_reactors(std::vector<xq::net::Reactor::Ptr>& reactors, std::vector<std::thread>& threads) {
-    const auto nthread = std::max(1u, std::thread::hardware_concurrency() - 1);
+    auto hc = std::thread::hardware_concurrency();
+    const auto nthread = hc <= 1 ? 1u : hc - 1;
 
     for (uint32_t i = 0; i < nthread; ++i) {
         auto reactor = xq::net::Reactor::create();
@@ -140,7 +141,7 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
                 continue;
             }
 
-            if (cfd > sslots_.size()) {
+            if (cfd >= (SOCKET)sslots_.size()) {
                 xWARN("超过最大连接限制, {}", sslots_.size());
                 ::close(cfd);
                 continue;
@@ -178,5 +179,6 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
     // Step 9, 释放 io_uring
     ::io_uring_queue_exit(&uring_);
 
+    xINFO("❎ 服务关闭 ❎");
     state_ = STATE_STOPPED;
 }
