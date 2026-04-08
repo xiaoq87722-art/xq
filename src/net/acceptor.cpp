@@ -179,6 +179,5 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
     // Step 9, 释放 io_uring
     ::io_uring_queue_exit(&uring_);
 
-    xINFO("❎ 服务关闭 ❎");
     state_ = STATE_STOPPED;
 }
