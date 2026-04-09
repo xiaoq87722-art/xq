@@ -31,63 +31,12 @@ public:
 
 
     ~Acceptor() noexcept {
-        delete[] sslots_;
     }
 
-
-    io_uring*
-    uring() noexcept {
-        return &uring_;
-    }
-
-
-    bool
-    running() const noexcept {
-        return state_ == STATE_RUNNING;
-    }
-
-
-    Session*
-    get_session(SOCKET fd) noexcept {
-        return sslots_[fd];
-    }
-
-
-    Session**
-    sessions() noexcept {
-        return sslots_;
-    }
-    
-
-    void
-    run(std::vector<Listener*>& listeners) noexcept;
-
-
-    void
-    stop() noexcept {
-        int state_running = STATE_RUNNING;
-        state_.compare_exchange_strong(state_running, STATE_STOPPING);
-    }
 
 
 private:
-    explicit Acceptor() noexcept {
-        auto n = std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10;
-        sslots_ = new Session*[n];
-        for (int i = 0; i < n; ++i) {
-            sslots_[i] = nullptr;
-        }
-    }
-
-
-    /** io_uring */
-    io_uring uring_ {};
-
-    /** acceptor 状态 */
-    std::atomic<int> state_ { STATE_STOPPED };
-
-    /** 所有 session 槽 */
-    Session **sslots_;
+    explicit Acceptor() noexcept {}
 }; // class Acceptor;
 
 
