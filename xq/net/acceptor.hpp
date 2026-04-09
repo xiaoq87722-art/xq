@@ -53,6 +53,12 @@ public:
     }
 
 
+    std::vector<Session*>&
+    sessions() noexcept {
+        return sslots_;
+    }
+
+
     int
     max_conn() const noexcept {
         return sslots_.size();

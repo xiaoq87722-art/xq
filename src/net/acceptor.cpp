@@ -128,15 +128,8 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
                 continue;
             }
 
-            auto s = sslots_[cfd];
-            if (!s) {
-                sslots_[cfd] = s = new Session;
-            }
-
             auto r = get_reactor(reactors);
-            s->init(cfd, l, r);
-
-            auto ev = RingEvent::create(RingCommand::R_ACCEPT, cfd, s);
+            auto ev = RingEvent::create(RingCommand::R_ACCEPT, cfd, l);
             r->notify(&uring_, ev);
         }
 

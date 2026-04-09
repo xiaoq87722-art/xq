@@ -45,7 +45,7 @@ public:
 
     bool
     valid() const {
-        return cfd_ > 0;
+        return cfd_ >= 0;
     }
 
 

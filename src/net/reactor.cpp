@@ -174,11 +174,21 @@ xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
 
 void
 xq::net::Reactor::on_r_accept(io_uring_cqe*, RingEvent* ev) noexcept {
-    Session* s = (Session*)ev->ex;
+    Listener* l = (Listener*)ev->ex;
+    auto& ss = Acceptor::instance()->sessions();
+    Session* s = ss[ev->fd];
+    if (!s) {
+        ss[ev->fd] = s = new Session;
+    }
+
+    s->init(ev->fd, l, this);
+    s->set_active_time(tnow_);
+
     add_session(s);
     if (s->valid()) {
         s->submit_recv();
     }
+
     RingEvent::destroy(ev);
 }
 
