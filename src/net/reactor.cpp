@@ -93,7 +93,7 @@ xq::net::Reactor::run() noexcept {
     // Step 4, IO LOOP
     state_ = STATE_RUNNING;
     while (true) {
-        if (should_stop && ::io_uring_sq_ready(&uring_) == 0) {
+        if (should_stop && pending_sessions_ == 0 && pending_notifs_ == 0) {
             break;
         }
 
@@ -264,7 +264,6 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
                 xFATAL("不支持 multishot 的旧版本内核上运行");
             } else if (res == -ECANCELED) {
                 sess->cbs_ = true;
-                xINFO("服务端 {} 主动断开连接 {}", sess->listener()->to_string(), sess->to_string());
             } else {
                 xERROR("{} recv error: [{}]{}", sess->to_string(), -res, ::strerror(-res));
             }
@@ -282,6 +281,7 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
     // 第二个 CQE: kernel 已用完 buffer，现在才能 free
     if (cqe->flags & IORING_CQE_F_NOTIF) {
+        --pending_notifs_;
         for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
             xq::utils::free(sbuf->mh.msg_iov[i].iov_base);
         }
@@ -346,7 +346,8 @@ void
 xq::net::Reactor::on_r_send(io_uring_cqe*, RingEvent* ev) noexcept {
     auto sess = (Session*)ev->ex;
 
-    if (ev->fd >= 0 && ev->fd < (SOCKET)sessions_.size() && sessions_[ev->fd] == sess && ev->gen == sess->gen()) {
+    auto fd = sess->fd();
+    if (fd >= 0 && fd < (SOCKET)sessions_.size() && sessions_[fd] == sess && ev->gen == sess->gen()) {
         sess->submit_send();
     }
 
@@ -362,6 +363,7 @@ xq::net::Reactor::add_session(Session* s) noexcept {
     }
 
     sessions_[s->fd()] = s;
+    ++pending_sessions_;
 }
 
 
@@ -370,4 +372,5 @@ xq::net::Reactor::remove_session(Session* s) noexcept {
     s->listener()->event()->on_disconnected(s);
     sessions_[s->fd()] = nullptr;
     s->release();
+    --pending_sessions_;
 }

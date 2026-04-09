@@ -111,8 +111,8 @@ xq::net::Session::send(Reactor* ctr, const uint8_t* data, size_t datalen, bool a
             submit_send(nullptr, auto_submit);
         } else {
             reactor_->notify(
-                ctr->uring(), 
-                RingEvent::create(RingCommand::R_SEND, cfd_, this, generation_),
+                ctr->uring(),
+                RingEvent::create(RingCommand::R_SEND, INVALID_SOCKET, this, generation_),
                 auto_submit
             );
         }
@@ -124,8 +124,6 @@ void
 xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
     ASSERT(::pthread_self() == reactor_->thread_id(), "只允许 session 的所属 reactor 线程调用 submit_send 函数");
 
-    // Phase 1: 处理上一次 S_SEND 完成回调
-    SendBuf* sbuf = nullptr;
     if (inflight_) {
         return;
     }
@@ -133,17 +131,21 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
     // Phase 2: 从队列取新数据
     //   iov 数据的释放由 sendmsg_zc 的 NOTIF CQE 负责，此处不做任何 free
     Buffer bufs[BATCH_COUNT];
-    int n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
-    if (n == 0) {
+    int n;
+
+    for (;;) {
+        n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
+        if (n > 0) break;
+
         sending_.store(false, std::memory_order_release);
         // Double Check: 防止 sending_=false 与其他线程 enqueue 之间的竞态
         if (!wque_.empty() && !sending_.exchange(true, std::memory_order_acq_rel)) {
-            submit_send(nullptr, auto_submit);
+            continue;
         }
         return;
     }
 
-    sbuf = new SendBuf;
+    auto* sbuf = new SendBuf;
     auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
     for (int i = 0; i < n; ++i) {
         iovs[i] = bufs[i];
@@ -154,6 +156,7 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
 
     // Phase 3: 提交 sendmsg_zc，每次提交都创建新的 ev，不复用
     inflight_ = true;
+    reactor_->add_pending_notif();
     ev = RingEvent::create(RingCommand::S_SEND, cfd_, sbuf, generation_);
 
     auto* sqe = acquire_sqe(reactor_->uring());
@@ -173,6 +176,7 @@ xq::net::Session::submit_send_prepared(SendBuf* sbuf, bool auto_submit) noexcept
     ASSERT(!inflight_, "submit_send(SendBuf*) 调用时 inflight_ 应为 false");
 
     inflight_ = true;
+    reactor_->add_pending_notif();
     auto* ev = RingEvent::create(RingCommand::S_SEND, cfd_, sbuf, generation_);
     auto* sqe = acquire_sqe(reactor_->uring());
     ::io_uring_sqe_set_data(sqe, ev);

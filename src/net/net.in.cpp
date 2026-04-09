@@ -58,7 +58,7 @@ xq::net::tcp_listen(const char* host, int rcv_buf, int snd_buf) noexcept {
             continue;
         }
 
-        static int optval = 1;
+        int optval = 1;
         if (::setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval))) {
             ::close(lfd);
             lfd = INVALID_SOCKET;

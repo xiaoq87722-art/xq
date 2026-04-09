@@ -65,6 +65,12 @@ public:
     notify(io_uring* ct_uring, xq::net::RingEvent* ev, bool auto_submit = false) noexcept;
 
 
+    void
+    add_pending_notif() noexcept {
+        ++pending_notifs_;
+    }
+
+
 private:
     explicit Reactor() noexcept {
         sessions_.resize(
@@ -120,6 +126,12 @@ private:
     
     /** 会话 */
     std::vector<Session*> sessions_;
+
+    /** 停止阶段: 仍存活的 session 数 */
+    int pending_sessions_ { 0 };
+
+    /** 停止阶段: 已提交 sendmsg_zc 但 NOTIF CQE 尚未到达的数量 */
+    int pending_notifs_ { 0 };
 
     /** buf ring 缓冲区 */
     io_uring_buf_ring* br_ { nullptr };
