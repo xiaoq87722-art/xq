@@ -99,7 +99,11 @@ struct Buffer {
 
 
 struct SendBuf {
+    static constexpr int BATCH_COUNT = 16;
+
+
     msghdr   mh {};
+    iovec    iovs[BATCH_COUNT];
     uint32_t total { 0 };
 };
 

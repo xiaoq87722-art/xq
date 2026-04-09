@@ -175,7 +175,7 @@ xq::net::Reactor::on_r_stop(io_uring_cqe*, RingEvent* ev) noexcept {
 void
 xq::net::Reactor::on_r_accept(io_uring_cqe*, RingEvent* ev) noexcept {
     Listener* l = (Listener*)ev->ex;
-    auto& ss = Acceptor::instance()->sessions();
+    auto ss = Acceptor::instance()->sessions();
     Session* s = ss[ev->fd];
     if (!s) {
         ss[ev->fd] = s = new Session;
@@ -277,7 +277,7 @@ xq::net::Reactor::on_s_recv(io_uring_cqe* cqe, RingEvent* ev) noexcept {
 
 void
 xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
-    auto* sbuf = (SendBuf*)ev->ex;
+    auto sbuf = (SendBuf*)ev->ex;
 
     // 第二个 CQE: kernel 已用完 buffer，现在才能 free
     if (cqe->flags & IORING_CQE_F_NOTIF) {
@@ -285,7 +285,7 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
         for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
             xq::utils::free(sbuf->mh.msg_iov[i].iov_base);
         }
-        xq::utils::free(sbuf->mh.msg_iov);
+
         delete sbuf;
         RingEvent::destroy(ev);
         return;
@@ -302,13 +302,14 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
             sbuf->total -= res;
 
             if (sbuf->total > 0) {
-                // 部分发送: 用剩余数据构建新 sbuf，不能碰旧 sbuf 的 iov（kernel 还持有）
+                // 部分发送: 用剩余数据构建新 sbuf, 不能碰旧 sbuf 的 iov (kernel 还持有)
                 int sn = res;
                 int start_iov = sbuf->mh.msg_iovlen;
                 size_t start_offset = 0;
+
                 for (int i = 0, n = sbuf->mh.msg_iovlen; i < n; ++i) {
                     if ((size_t)sn < sbuf->mh.msg_iov[i].iov_len) {
-                        start_iov    = i;
+                        start_iov = i;
                         start_offset = sn;
                         break;
                     }
@@ -316,20 +317,19 @@ xq::net::Reactor::on_s_send(io_uring_cqe* cqe, RingEvent* ev) noexcept {
                 }
 
                 int remaining = sbuf->mh.msg_iovlen - start_iov;
-                auto* new_iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * remaining);
+                auto new_sbuf = new SendBuf;
                 for (int i = 0; i < remaining; ++i) {
-                    auto& src     = sbuf->mh.msg_iov[start_iov + i];
+                    auto& src = sbuf->mh.msg_iov[start_iov + i];
                     size_t offset = (i == 0) ? start_offset : 0;
-                    size_t len    = src.iov_len - offset;
-                    new_iovs[i].iov_base = xq::utils::malloc(len);
-                    new_iovs[i].iov_len  = len;
-                    ::memcpy(new_iovs[i].iov_base, (uint8_t*)src.iov_base + offset, len);
+                    size_t len = src.iov_len - offset;
+                    new_sbuf->iovs[i].iov_base = xq::utils::malloc(len);
+                    new_sbuf->iovs[i].iov_len = len;
+                    ::memcpy(new_sbuf->iovs[i].iov_base, (uint8_t*)src.iov_base + offset, len);
                 }
 
-                auto* new_sbuf = new SendBuf;
-                new_sbuf->mh.msg_iov = new_iovs;
+                new_sbuf->mh.msg_iov    = new_sbuf->iovs;
                 new_sbuf->mh.msg_iovlen = remaining;
-                new_sbuf->total = sbuf->total;
+                new_sbuf->total         = sbuf->total;
                 sess->submit_send_prepared(new_sbuf);
             } else {
                 sess->submit_send();

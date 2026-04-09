@@ -32,7 +32,9 @@ public:
     }
 
 
-    ~Acceptor() noexcept {}
+    ~Acceptor() noexcept {
+        delete[] sslots_;
+    }
 
 
     io_uring*
@@ -53,15 +55,9 @@ public:
     }
 
 
-    std::vector<Session*>&
+    Session**
     sessions() noexcept {
         return sslots_;
-    }
-
-
-    int
-    max_conn() const noexcept {
-        return sslots_.size();
     }
     
 
@@ -78,10 +74,11 @@ public:
 
 private:
     explicit Acceptor() noexcept {
-        sslots_.resize(
-            std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10,
-            nullptr
-        );
+        auto n = std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10;
+        sslots_ = new Session*[n];
+        for (int i = 0; i < n; ++i) {
+            sslots_[i] = nullptr;
+        }
     }
 
 
@@ -92,7 +89,7 @@ private:
     std::atomic<int> state_ { STATE_STOPPED };
 
     /** 所有 session 槽 */
-    std::vector<Session*> sslots_;
+    Session **sslots_;
 }; // class Acceptor;
 
 

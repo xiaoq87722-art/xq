@@ -66,6 +66,7 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
         return;
     }
 
+    auto max_connfd = std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10;
     std::vector<std::thread> threads;
     std::vector<Reactor::Ptr> reactors;
 
@@ -122,8 +123,8 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
                 continue;
             }
 
-            if (cfd >= (SOCKET)sslots_.size()) {
-                xWARN("超过最大连接限制, {}", sslots_.size());
+            if (cfd >= (SOCKET)max_connfd) {
+                xWARN("超过最大连接限制, {}", max_connfd);
                 ::close(cfd);
                 continue;
             }
@@ -153,12 +154,13 @@ xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
     // Step 9, 释放 io_uring
     ::io_uring_queue_exit(&uring_);
 
-    for (auto s: sslots_) {
-        if (s) {
-            delete s;
+    for (int i = 0; i < max_connfd; ++i) {
+        if (sslots_[i]) {
+            delete sslots_[i];
+            sslots_[i] = nullptr;
         }
     }
 
-    std::fill(sslots_.begin(), sslots_.end(), nullptr);
+
     state_ = STATE_STOPPED;
 }

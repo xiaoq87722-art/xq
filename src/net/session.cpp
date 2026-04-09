@@ -6,9 +6,6 @@
 #include <netinet/tcp.h>
 
 
-static constexpr int BATCH_COUNT = 16;
-
-
 void
 xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     if (cfd_ != INVALID_SOCKET) {
@@ -39,8 +36,8 @@ xq::net::Session::init(SOCKET cfd, Listener* l, Reactor* r) noexcept {
     remote_ = xq::net::sockaddr_to_string((sockaddr*)&addr_);
 
     int n = 0;
-    Buffer bufs[BATCH_COUNT];
-    while(n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT), n > 0);
+    Buffer bufs[SendBuf::BATCH_COUNT];
+    while(n = wque_.try_dequeue_bulk(bufs, SendBuf::BATCH_COUNT), n > 0);
 
     sending_.store(false, std::memory_order_release);
 }
@@ -56,8 +53,8 @@ xq::net::Session::release() noexcept {
     cfd_ = INVALID_SOCKET;
 
     int n = 0;
-    Buffer bufs[BATCH_COUNT];
-    while(n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT), n > 0);
+    Buffer bufs[SendBuf::BATCH_COUNT];
+    while(n = wque_.try_dequeue_bulk(bufs, SendBuf::BATCH_COUNT), n > 0);
 }
 
 
@@ -130,12 +127,14 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
 
     // Phase 2: 从队列取新数据
     //   iov 数据的释放由 sendmsg_zc 的 NOTIF CQE 负责，此处不做任何 free
-    Buffer bufs[BATCH_COUNT];
+    Buffer bufs[SendBuf::BATCH_COUNT];
     int n;
 
     for (;;) {
-        n = wque_.try_dequeue_bulk(bufs, BATCH_COUNT);
-        if (n > 0) break;
+        n = wque_.try_dequeue_bulk(bufs, SendBuf::BATCH_COUNT);
+        if (n > 0) {
+            break;
+        }
 
         sending_.store(false, std::memory_order_release);
         // Double Check: 防止 sending_=false 与其他线程 enqueue 之间的竞态
@@ -145,13 +144,12 @@ xq::net::Session::submit_send(RingEvent* ev, bool auto_submit) noexcept {
         return;
     }
 
-    auto* sbuf = new SendBuf;
-    auto iovs = (iovec*)xq::utils::malloc(sizeof(iovec) * n);
+    auto sbuf = new SendBuf;
     for (int i = 0; i < n; ++i) {
-        iovs[i] = bufs[i];
-        sbuf->total += iovs[i].iov_len;
+        sbuf->iovs[i] = bufs[i];
+        sbuf->total += sbuf->iovs[i].iov_len;
     }
-    sbuf->mh.msg_iov = iovs;
+    sbuf->mh.msg_iov = sbuf->iovs;
     sbuf->mh.msg_iovlen = n;
 
     // Phase 3: 提交 sendmsg_zc，每次提交都创建新的 ev，不复用
