@@ -80,6 +80,14 @@ struct RingEvent {
     /** 世代号 */
     uint64_t gen { 0 };
 
+    /**
+     * multishot recv teardown 标记:
+     * on_data 返回非零且 F_MORE 为真时 session 已被 remove，
+     * 但 ev 不能立即释放，需等内核的最终 cancel CQE (F_MORE 清零)。
+     * 设此标志并增加 pending_recv_teardowns_ 以阻止 reactor 提前退出。
+     */
+    bool teardown { false };
+
 private:
     RingEvent(RingCommand c, SOCKET f, void* d, uint64_t g) noexcept
         : cmd(c), fd(f), ex(d), gen(g)
@@ -117,26 +125,6 @@ set_nonblocking(int fd) noexcept {
 
 
 /**
- * @brief 获取io_uring_sqe
- * 
- * @param uring io_uring实例
- * 
- */
-inline io_uring_sqe*
-acquire_sqe(io_uring* uring) noexcept {
-    auto *sqe = io_uring_get_sqe(uring);
-    if (!sqe) {
-        int ret = ::io_uring_submit(uring);
-        ASSERT(ret >= 0, "io_uring_submit failed: {}, {}", -ret, ::strerror(-ret));
-        sqe = ::io_uring_get_sqe(uring);
-    }
-
-    ASSERT(sqe != nullptr, "获取 io_uring_sqe 失败, 请将 que_depth 设置为更大值");
-    return sqe;
-}
-
-
-/**
  * @brief 获取下一个可用的文件描述符
  */
 inline int
@@ -170,18 +158,6 @@ sockaddr_to_string(const sockaddr* addr) noexcept {
 
     return std::string(ip) + ":" + std::to_string(port);
 }
-
-
-io_uring_buf_ring*
-init_io_uring_with_br(io_uring* uring, std::vector<uint8_t*>& brbufs) noexcept;
-
-
-void
-release_io_uring_with_br(io_uring* uring, io_uring_buf_ring* ptr, std::vector<uint8_t*>& brbufs) noexcept;
-
-
-void
-recycle_buf_ring(io_uring_buf_ring* br, uint8_t* buf, uint16_t bid) noexcept;
 
 
 } // namespace net

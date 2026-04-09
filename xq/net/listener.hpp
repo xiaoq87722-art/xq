@@ -76,19 +76,6 @@ public:
     }
 
 
-    void
-    submit_accept(io_uring* uring, bool auto_submit = false) noexcept {
-        auto *sqe = acquire_sqe(uring);
-        ::io_uring_sqe_set_data(sqe, (void*)this);
-        ::io_uring_prep_multishot_accept(sqe, lfd_, nullptr, nullptr, 0);
-
-        if (auto_submit) {
-            int ret = ::io_uring_submit(uring);
-            ASSERT(ret >= 0, "::io_uring_submit(uring) failed: [{}] {}", -ret, ::strerror(-ret));
-        }
-    }
-
-
 private:
     /** 监听套接字 */
     SOCKET lfd_ { INVALID_SOCKET };

@@ -5,8 +5,6 @@
 #include <vector>
 #include <thread>
 #include "xq/utils/memory.hpp"
-#include "xq/net/session.hpp"
-#include "xq/net/listener.hpp"
 #include "xq/net/conf.hpp"
 
 
