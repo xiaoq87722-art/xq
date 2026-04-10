@@ -1,95 +1,73 @@
-#ifndef __XQ_NET_LISTENER_HPP__
-#define __XQ_NET_LISTENER_HPP__
+#ifndef __XQ_NET_LISTENER_HPP_
+#define __XQ_NET_LISTENER_HPP_
 
 
+#include <uv.h>
 #include "xq/net/net.in.h"
-#include "xq/net/buffer.hpp"
-#include <unistd.h>
-#include <sys/socket.h>
-#include <string>
-#include <atomic>
+#include "xq/utils/log.hpp"
 
 
-namespace xq {
-namespace net {
+namespace xq::net {
 
 
-class Session;
-class Listener;
-
-
-class ListenerEvent {
-public:
-    virtual void on_init(Listener* listener) {}
-    virtual void on_stopped(Listener* listener) {}
-    virtual int on_connected(Session* sess) { return 0; }
-    virtual void on_disconnected(Session* sess) {}
-    virtual int on_data(Session* sess, const uint8_t* data, size_t len) = 0;
-}; // class ListenerEvent;
+class Acceptor;
 
 
 class Listener {
-    Listener(const Listener&) = delete;
-    Listener& operator=(const Listener&) = delete;
-    Listener(Listener&&) = delete;
-    Listener& operator=(Listener&&) = delete;
-
-
 public:
-    Listener(ListenerEvent* ev, const char* endpoint) noexcept;
+    Listener(const char* endpoint, uint16_t port) {
+        ASSERT(endpoint && port > 0, "params is invalid");
 
-
-    ~Listener() noexcept {
-        if (lfd_ != INVALID_SOCKET) {
-            ev_->on_stopped(this);
-            ::close(lfd_);
-            lfd_ = INVALID_SOCKET;
-        }
+        ::uv_ip4_addr(endpoint, port, &addr_);
     }
 
 
-    const char*
-    host() const {
-        return host_.c_str();
-    }
+    ~Listener() {}
 
 
-    SOCKET
-    fd() const {
-        return lfd_;
+    uv_tcp_t*
+    get_listener() {
+        return listener_;
     }
 
 
     std::string
-    to_string() const {
-        return std::format("[{}]{}", lfd_, host_);
+    to_string() const noexcept {
+        return sockaddr_to_string((sockaddr*)&addr_);
     }
 
 
-    ListenerEvent* event() {
-        return ev_;
+    void
+    start(Acceptor* acceptor, uv_connection_cb cb) noexcept;
+
+
+    void
+    stop() {
+        if (!::uv_is_closing((uv_handle_t*)listener_)) {
+            ::uv_close((uv_handle_t*)listener_, [](uv_handle_t* handle) {
+                auto l = (Listener*)handle->data;
+                xINFO("{} closed .........", l->to_string());
+                xq::utils::free(handle);
+            });
+        }
     }
 
 
-    const ListenerEvent* event() const {
-        return ev_;
-    }
+    SOCKET
+    accept() noexcept;
 
 
 private:
-    /** 监听套接字 */
-    SOCKET lfd_ { INVALID_SOCKET };
 
-    /** 监听事件 */
-    ListenerEvent* ev_ { nullptr };
-
-    /** 监听地址 */
-    std::string host_;
+    SOCKET fd_ { INVALID_SOCKET };
+    uv_tcp_t* listener_ { nullptr };
+    sockaddr_in addr_ {};
+    Acceptor* acceptor_ { nullptr };
 }; // class Listener;
 
 
-} // namespace net
-} // namespace xq
+} // namespace xq::net
 
 
-#endif // __XQ_NET_LISTENER_HPP__
+
+#endif // __XQ_NET_LISTENER_HPP_

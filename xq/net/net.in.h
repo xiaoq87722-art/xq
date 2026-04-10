@@ -14,85 +14,18 @@ typedef int SOCKET;
 #define INVALID_SOCKET (-1)
 
 
-namespace xq {
-namespace net {
-
-
 constexpr int STATE_STOPPED = 0;  // 停止状态
 constexpr int STATE_STARTING = 1; // 正在开启
 constexpr int STATE_RUNNING = 2;  // 运行状态
 constexpr int STATE_STOPPING = 3; // 正在停止
 
 
-enum class RingCommand {
-    NONE,     // 无
-    R_ACCEPT, // session new connection
-    R_STOP,   // reactor stop
-    R_TIMER,  // reactor timer,
-    R_SEND,   // reactor send
-    S_RECV,   // session read
-    S_SEND,   // session write
-    S_CANCEL, // session Cancel
-    C_CONN,   // conn connection
-    C_TIMER,  // conn timer
-    C_RECV,
-};
+constexpr int EVENT_ON_ACCEPT = 1;
+constexpr int EVENT_ON_STOP = 2;
 
 
-/**
- * @brief io_uring 传递事件
- *   该结构体很小, 所以没必要用到lockfree-threadsafe 的对象池, 直接使用 mi_malloc 性能更好
- */
-struct RingEvent {
-    static RingEvent*
-    create(RingCommand c, SOCKET f = INVALID_SOCKET, void* d = nullptr, uint64_t g = 0) noexcept {
-        auto p = xq::utils::malloc(sizeof(RingEvent));
-        return new(p) RingEvent(c, f, d, g);
-    }
-
-
-    static void
-    destroy(RingEvent* p) noexcept {
-        if (p) {
-            p->~RingEvent();
-            xq::utils::free(p);
-        }
-    }
-
-    ~RingEvent() noexcept {}
-
-
-    RingEvent(const RingEvent&) = delete;
-    RingEvent(RingEvent&&) = delete;
-    RingEvent& operator=(const RingEvent&) = delete;
-    RingEvent& operator=(RingEvent&&) = delete;
-
-
-    /** 命令 */
-    RingCommand cmd { RingCommand::NONE };
-
-    /** socket fd */
-    SOCKET fd { INVALID_SOCKET };
-
-    /** 扩展数据 */
-    void* ex { nullptr };
-
-    /** 世代号 */
-    uint64_t gen { 0 };
-
-    /**
-     * multishot recv teardown 标记:
-     * on_data 返回非零且 F_MORE 为真时 session 已被 remove，
-     * 但 ev 不能立即释放，需等内核的最终 cancel CQE (F_MORE 清零)。
-     * 设此标志并增加 pending_recv_teardowns_ 以阻止 reactor 提前退出。
-     */
-    bool teardown { false };
-
-private:
-    RingEvent(RingCommand c, SOCKET f, void* d, uint64_t g) noexcept
-        : cmd(c), fd(f), ex(d), gen(g)
-    {}
-};
+namespace xq {
+namespace net {
 
 
 /**

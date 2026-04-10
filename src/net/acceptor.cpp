@@ -1,166 +1,126 @@
 #include "xq/net/acceptor.hpp"
 #include "xq/net/reactor.hpp"
 #include "xq/utils/signal.h"
-#include <emmintrin.h>
-#include <liburing.h>
-#include "xq/utils/log.hpp"
+#include "xq/net/net.in.h"
+#include <immintrin.h>
 #include <cstring>
 #include "xq/net/conf.hpp"
 
 
 static void
-signal_handle(int sig) {
-    if (sig == SIGINT || sig == SIGTERM) {
-        xq::net::Acceptor::instance()->stop();
-    }
+signal_handle(uv_signal_t* handle, int) {
+    auto* a = (xq::net::Acceptor*)handle->loop->data;
+    a->stop();
 }
 
 
-static inline xq::net::Reactor*
-get_reactor(const std::vector<xq::net::Reactor::Ptr>& reactors) {
-    static size_t index { 0 };
+static xq::net::Reactor*
+next_reactor(std::vector<xq::net::Reactor*>& reactors) noexcept {
+    static size_t index = 0;
     return reactors[index++ % reactors.size()];
 }
 
 
-static void
-init_reactors(std::vector<xq::net::Reactor::Ptr>& reactors, std::vector<std::thread>& threads) {
-    auto hc = std::thread::hardware_concurrency();
-    const auto nthread = hc <= 1 ? 1u : hc - 1;
-
-    for (uint32_t i = 0; i < nthread; ++i) {
-        auto reactor = xq::net::Reactor::create();
-        reactors.emplace_back(reactor);
-        threads.emplace_back(std::bind(&xq::net::Reactor::run, reactor));
+void
+xq::net::Acceptor::on_new_connection(uv_stream_t* server, int status) noexcept {
+    if (status < 0) {
+        xERROR("on_new_connection failed: [{}] {}", status, ::uv_strerror(status));
+        return;
     }
 
-    for (auto& reactor: reactors) {
-        while (!reactor->running()) {
-            ::_mm_pause();
-        }
-    }
-}
+    auto l = (xq::net::Listener*)server->data;
+    xINFO("{} on_new_connection", l->to_string());
 
-
-static void
-release_reactors(std::vector<xq::net::Reactor::Ptr>& reactors, std::vector<std::thread>& threads) {
-    for (auto& thread : threads) {
-        if (thread.joinable()) {
-            thread.join();
-        }
+    auto cfd = l->accept();
+    if (cfd == INVALID_SOCKET) {
+        return;
     }
 
-    for (auto r: reactors) {
-        delete r;
-    }
-
-    threads.clear();
-    reactors.clear();
+    next_reactor(Acceptor::instance()->reactors_)->post({ EVENT_ON_ACCEPT, cfd });
 }
 
 
 void
-xq::net::Acceptor::run(std::vector<Listener*>& listeners) noexcept {
-    int stopped = STATE_STOPPED;
-    if (!state_.compare_exchange_strong(stopped, STATE_STARTING)) {
-        return;
-    }
+xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
+    int stopped_state = STATE_STOPPED;
 
-    auto max_connfd = std::thread::hardware_concurrency() * Conf::instance()->per_max_conn() * 15 / 10;
-    std::vector<std::thread> threads;
-    std::vector<Reactor::Ptr> reactors;
-
-    // Step 1, 初始化io_uring
-    const auto que_depth = xq::net::Conf::instance()->que_depth();
-    int ret = ::io_uring_queue_init(que_depth, &uring_, IORING_SETUP_SINGLE_ISSUER);
-    ASSERT(ret == 0, "io_uring_queue_init failed: [{}] {}", -ret, ::strerror(-ret));
-
-    // Step 2, 启动Reactor线程
-    init_reactors(reactors, threads);
-
-    // Step 3, 注册信号处理函数
-    xq::utils::regist_signal(signal_handle, {SIGINT, SIGTERM});
-
-    for (auto l: listeners) {
-        l->submit_accept(&uring_);
-    }
-
-    io_uring_cqe* cqe = nullptr;
-    SOCKET cfd = INVALID_SOCKET;
-    unsigned head, count;
-
-    // Step 5, 事件循环
-    state_ = STATE_RUNNING;
-    while (1) {
-        ret = ::io_uring_submit_and_wait(&uring_, 1);
-        if (ret < 0) {
-            if (ret == -EINTR && !running()) {
-                break;
-            }
-            xERROR("io_uring_submit_and_wait failed: [{}] {}", -ret, ::strerror(-ret));
-            continue;
-        }
-
-        count = 0;
-        io_uring_for_each_cqe(&uring_, head, cqe) {
-            count++;
-            auto l = (Listener*)::io_uring_cqe_get_data(cqe);
-            if (!l) {
-                continue;
-            }
-
-            if (!(cqe->flags & IORING_CQE_F_MORE)) {
-                // 即使 listen fd 未 close, cqe->flags 也可能丢失 multishot flag.
-                xWARN("multishot 已从 {} listen fd 上移除", l->to_string());
-                if (running()) {
-                    l->submit_accept(&uring_);
-                }
-            }
-
-            cfd = cqe->res;
-            if (cfd < 0) {
-                xERROR("{} accept failed: {}, {}", l->to_string(), -cfd, ::strerror(-cfd));
-                continue;
-            }
-
-            if (cfd >= (SOCKET)max_connfd) {
-                xWARN("超过最大连接限制, {}", max_connfd);
-                ::close(cfd);
-                continue;
-            }
-
-            auto r = get_reactor(reactors);
-            auto ev = RingEvent::create(RingCommand::R_ACCEPT, cfd, l);
-            r->notify(&uring_, ev);
-        }
-
-        if (count > 0) {
-            ::io_uring_cq_advance(&uring_, count);
-        }
-
-        if (!running()) {
+    do {
+        if (!state_.compare_exchange_strong(stopped_state, STATE_STARTING)) {
             break;
         }
-    }
 
-    // Step 7, 停止 reactor 线程
-    for (auto& r: reactors) {
-        r->notify(&uring_, RingEvent::create(RingCommand::R_STOP), true);
-    }
+        loop_ = (uv_loop_t*)xq::utils::malloc(sizeof(uv_loop_t), true);
+        int r = ::uv_loop_init(loop_);
+        ASSERT(r == 0, "uv_loop_init failed: [{}] {}", r, ::uv_strerror(r));
+        loop_->data = this;
 
-    // Step 8, 释放 reactors 和 threads
-    release_reactors(reactors, threads);
+        uv_signal_t sigint, sigterm;
+        ::uv_signal_init(loop_, &sigint);
+        ::uv_signal_init(loop_, &sigterm);
 
-    // Step 9, 释放 io_uring
-    ::io_uring_queue_exit(&uring_);
+        ::uv_signal_start(&sigint, signal_handle, SIGINT);
+        ::uv_signal_start(&sigterm, signal_handle, SIGTERM);
 
-    for (int i = 0; i < max_connfd; ++i) {
-        if (sslots_[i]) {
-            delete sslots_[i];
-            sslots_[i] = nullptr;
+        uint32_t nr = std::thread::hardware_concurrency();
+        if (nr > 2) {
+            nr -= 2;
         }
+
+        for (uint32_t i = 0; i < nr; ++i) {
+            Reactor* r = new Reactor();
+            reactors_.emplace_back(r);
+            threads_.emplace_back(std::thread(std::bind(&xq::net::Reactor::run, r)));
+
+            while(!r->running()) {
+                _mm_pause();
+            }
+        }
+
+        for (auto l: listeners) {
+            l->start(this, on_new_connection);
+            listeners_.emplace_back(l->get_listener());
+        }
+
+        state_.exchange(STATE_RUNNING);
+        r = ::uv_run(loop_, UV_RUN_DEFAULT);
+        ASSERT(r == 0, "uv_run has {} active left", r);
+
+        for (auto& l: listeners) {
+            l->stop();
+        }
+
+        for (uint32_t i = 0; i < nr; ++i) {
+            Reactor* r = reactors_[i];
+            r->stop();
+            auto& t = threads_[i];
+            if (t.joinable()) {
+                t.join();
+            }
+            delete r;
+        }
+
+        r = ::uv_loop_close(loop_);
+        ASSERT(r == 0, "uv_loop_close failed: [{}] {}", r, ::uv_strerror(r));
+        xq::utils::free(loop_);
+
+        reactors_.clear();
+        listeners_.clear();
+        threads_.clear();
+    } while(0);
+
+    int state_stopping = STATE_STOPPING;
+    state_.compare_exchange_strong(state_stopping, STATE_STOPPED);
+}
+
+
+void
+xq::net::Acceptor::stop() noexcept {
+    int state_running = STATE_RUNNING;
+    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
+        ::uv_walk(loop_, [](uv_handle_t* handle, void*) {
+            if (!::uv_is_closing(handle)) {
+                ::uv_close(handle, nullptr);
+            }
+        }, nullptr);
     }
-
-
-    state_ = STATE_STOPPED;
 }

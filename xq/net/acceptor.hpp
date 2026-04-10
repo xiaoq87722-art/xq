@@ -4,6 +4,8 @@
 
 #include <vector>
 #include <thread>
+#include "xq/net/listener.hpp"
+#include "xq/net/reactor.hpp"
 #include "xq/utils/memory.hpp"
 #include "xq/net/conf.hpp"
 
@@ -30,13 +32,50 @@ public:
     }
 
 
-    ~Acceptor() noexcept {
+    ~Acceptor() noexcept
+    {}
+
+
+    void
+    run(const std::vector<Listener*>& listeners) noexcept;
+
+
+    void
+    stop() noexcept;
+
+
+    bool
+    running() const noexcept {
+        return state_ == STATE_RUNNING;
     }
 
 
+    uv_tcp_t*
+    (&sessions() noexcept)[100000] {
+        return sessions_;
+    }
+
+
+    uv_loop_t*
+    loop() noexcept {
+        return loop_;
+    }
+
 
 private:
+    static void
+    on_new_connection(uv_stream_t* server, int status) noexcept;
+
+
     explicit Acceptor() noexcept {}
+
+
+    uv_loop_t* loop_ { nullptr };
+    std::atomic<int> state_ { STATE_STOPPED };
+    std::vector<uv_tcp_t*> listeners_;
+    std::vector<Reactor*> reactors_;
+    std::vector<std::thread> threads_;
+    uv_tcp_t* sessions_[100000];
 }; // class Acceptor;
 
 
