@@ -3,6 +3,7 @@
 
 
 #include "xq/net/net.in.h"
+#include "xq/net/event.hpp"
 #include "xq/net/conf.hpp"
 #include "xq/utils/spsc.hpp"
 #include <atomic>
@@ -14,9 +15,6 @@ namespace net {
 
 
 class Reactor {
-    typedef std::pair<int, SOCKET> Event;
-
-
     Reactor(const Reactor&) = delete;
     Reactor& operator=(const Reactor&) = delete;
     Reactor(Reactor&&) = delete;
@@ -45,7 +43,7 @@ public:
 
 
     void
-    post(Reactor::Event ev);
+    post(Event ev);
 
 
 private:
@@ -55,6 +53,7 @@ private:
 
     void
     add_session(SOCKET fd, uv_tcp_t* s) noexcept {
+        xINFO("{} 连接成功", fd);
         sessions_[fd] = s;
     }
 

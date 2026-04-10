@@ -17,51 +17,51 @@ class Listener {
 public:
     Listener(const char* endpoint, uint16_t port) {
         ASSERT(endpoint && port > 0, "params is invalid");
-
-        ::uv_ip4_addr(endpoint, port, &addr_);
+        host_ = std::format("{}:{}", endpoint, port);
     }
 
 
     ~Listener() {}
 
 
-    uv_tcp_t*
-    get_listener() {
-        return listener_;
-    }
-
-
     std::string
     to_string() const noexcept {
-        return sockaddr_to_string((sockaddr*)&addr_);
+        return host_;
     }
 
 
     void
-    start(Acceptor* acceptor, uv_connection_cb cb) noexcept;
+    start(Acceptor* acceptor, uv_poll_cb cb) noexcept;
 
 
     void
     stop() {
-        if (!::uv_is_closing((uv_handle_t*)listener_)) {
-            ::uv_close((uv_handle_t*)listener_, [](uv_handle_t* handle) {
-                auto l = (Listener*)handle->data;
-                xINFO("{} closed .........", l->to_string());
+        if (poll_handle_) {
+            ::uv_close((uv_handle_t*)poll_handle_, [](uv_handle_t* handle) {
                 xq::utils::free(handle);
             });
+            poll_handle_ = nullptr;
+        }
+
+        if (fd_ != INVALID_SOCKET) {
+            xINFO("{} 停止监听", host_);
+            ::close(fd_);
+            fd_ = INVALID_SOCKET;
         }
     }
 
 
     SOCKET
-    accept() noexcept;
+    accept() noexcept {
+        return ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK);
+    }
 
 
 private:
 
     SOCKET fd_ { INVALID_SOCKET };
-    uv_tcp_t* listener_ { nullptr };
-    sockaddr_in addr_ {};
+    std::string host_ {};
+    uv_poll_t* poll_handle_ { nullptr };
     Acceptor* acceptor_ { nullptr };
 }; // class Listener;
 

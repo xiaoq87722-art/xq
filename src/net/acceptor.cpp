@@ -22,21 +22,24 @@ next_reactor(std::vector<xq::net::Reactor*>& reactors) noexcept {
 
 
 void
-xq::net::Acceptor::on_new_connection(uv_stream_t* server, int status) noexcept {
+xq::net::Acceptor::on_accept(uv_poll_t* server, int status, int events) noexcept {
     if (status < 0) {
         xERROR("on_new_connection failed: [{}] {}", status, ::uv_strerror(status));
         return;
     }
 
-    auto l = (xq::net::Listener*)server->data;
-    xINFO("{} on_new_connection", l->to_string());
+    if (events & UV_READABLE) {
+        while (1) {
+            auto l = (xq::net::Listener*)server->data;
+            auto cfd = l->accept();
+            if (cfd == INVALID_SOCKET) {
+                return;
+            }
 
-    auto cfd = l->accept();
-    if (cfd == INVALID_SOCKET) {
-        return;
+            auto r = next_reactor(Acceptor::instance()->reactors_);
+            r->post({ EVENT_ON_ACCEPT, (void*)(uintptr_t)cfd });
+        }
     }
-
-    next_reactor(Acceptor::instance()->reactors_)->post({ EVENT_ON_ACCEPT, cfd });
 }
 
 
@@ -77,17 +80,12 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         }
 
         for (auto l: listeners) {
-            l->start(this, on_new_connection);
-            listeners_.emplace_back(l->get_listener());
+            l->start(this, on_accept);
         }
 
         state_.exchange(STATE_RUNNING);
         r = ::uv_run(loop_, UV_RUN_DEFAULT);
         ASSERT(r == 0, "uv_run has {} active left", r);
-
-        for (auto& l: listeners) {
-            l->stop();
-        }
 
         for (uint32_t i = 0; i < nr; ++i) {
             Reactor* r = reactors_[i];
@@ -104,7 +102,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         xq::utils::free(loop_);
 
         reactors_.clear();
-        listeners_.clear();
         threads_.clear();
     } while(0);
 
@@ -119,7 +116,12 @@ xq::net::Acceptor::stop() noexcept {
     if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
         ::uv_walk(loop_, [](uv_handle_t* handle, void*) {
             if (!::uv_is_closing(handle)) {
-                ::uv_close(handle, nullptr);
+                if (handle->type == UV_TCP && handle->data) {
+                    auto l = (xq::net::Listener*)handle->data;
+                    l->stop();
+                } else {
+                    ::uv_close(handle, nullptr);
+                }
             }
         }, nullptr);
     }

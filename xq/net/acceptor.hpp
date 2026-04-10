@@ -64,7 +64,7 @@ public:
 
 private:
     static void
-    on_new_connection(uv_stream_t* server, int status) noexcept;
+    on_accept(uv_poll_t* server, int status, int events) noexcept;
 
 
     explicit Acceptor() noexcept {}
@@ -72,7 +72,6 @@ private:
 
     uv_loop_t* loop_ { nullptr };
     std::atomic<int> state_ { STATE_STOPPED };
-    std::vector<uv_tcp_t*> listeners_;
     std::vector<Reactor*> reactors_;
     std::vector<std::thread> threads_;
     uv_tcp_t* sessions_[100000];

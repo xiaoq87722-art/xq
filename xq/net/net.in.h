@@ -20,10 +20,6 @@ constexpr int STATE_RUNNING = 2;  // 运行状态
 constexpr int STATE_STOPPING = 3; // 正在停止
 
 
-constexpr int EVENT_ON_ACCEPT = 1;
-constexpr int EVENT_ON_STOP = 2;
-
-
 namespace xq {
 namespace net {
 

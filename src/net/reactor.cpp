@@ -37,7 +37,7 @@ xq::net::Reactor::stop() {
 
 
 void
-xq::net::Reactor::post(Reactor::Event ev) {
+xq::net::Reactor::post(Event ev) {
     ASSERT(pending_fds_.enqueue(std::move(ev)), "pending_fds_ 队列已满");
     ::uv_async_send(async_);
 }
@@ -53,7 +53,7 @@ xq::net::Reactor::on_new_fd(uv_async_t* handle) noexcept {
     while (reactor->pending_fds_.dequeue(ev)) {
         switch (ev.first) {
             case EVENT_ON_ACCEPT:
-                reactor->on_accept(ev.second);
+                reactor->on_accept((SOCKET)(uintptr_t)ev.second);
                 break;
 
             case EVENT_ON_STOP:
@@ -66,10 +66,13 @@ xq::net::Reactor::on_new_fd(uv_async_t* handle) noexcept {
 
 void
 xq::net::Reactor::on_accept(SOCKET fd) noexcept {
+    xINFO("{} 连接成功", fd);
     uv_tcp_t* s = Acceptor::instance()->sessions()[fd];
     if (!s) {
         Acceptor::instance()->sessions()[fd] = s = new uv_tcp_t;
     }
+
+    s->data = (void*)(uintptr_t)fd;
 
     int r = ::uv_tcp_init(loop_, s);
     ASSERT(r == 0, "uv_tcp_init failed: [{}] {}", r, ::uv_strerror(r));
@@ -77,7 +80,12 @@ xq::net::Reactor::on_accept(SOCKET fd) noexcept {
     r = ::uv_tcp_open(s, fd);
     ASSERT(r == 0, "uv_tcp_open failed: [{}] {}", r, ::uv_strerror(r));
 
-    add_session(fd, s);
+    ::uv_close((uv_handle_t*)s, [](uv_handle_t* handle) {
+        uv_os_sock_t cfd = (uv_os_sock_t)(uintptr_t)handle->data;
+        xINFO("{} 连接断开", cfd);
+        ::memset(handle, 0, sizeof(uv_tcp_t));
+    });
+    // add_session(fd, s);
 }
 
 
