@@ -3,7 +3,6 @@
 
 
 #include "xq/utils/log.hpp"
-#include <liburing.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>

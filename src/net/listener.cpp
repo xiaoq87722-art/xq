@@ -2,27 +2,6 @@
 #include "xq/net/acceptor.hpp"
 
 
-static void
-on_accept(uv_poll_t* handle, int status, int events) noexcept {
-    if (status < 0) {
-        xERROR("on_accept failed: [{}] {}", status, ::uv_strerror(status));
-        return;
-    }
-
-    if (events & UV_READABLE) {
-        auto l = (xq::net::Listener*)handle->data;
-        while(1) {
-            SOCKET cfd = l->accept();
-            if (cfd == INVALID_SOCKET) {
-                break;
-            }
-        }
-    }
-}
-
-
-
-
 void
 xq::net::Listener::start(Acceptor* acceptor, uv_poll_cb cb) noexcept {
     xINFO("{} 开启监听", host_);

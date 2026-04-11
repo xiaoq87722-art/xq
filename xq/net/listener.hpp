@@ -53,7 +53,7 @@ public:
 
     SOCKET
     accept() noexcept {
-        return ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK);
+        return ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
     }
 
 

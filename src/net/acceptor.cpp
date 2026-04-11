@@ -116,7 +116,7 @@ xq::net::Acceptor::stop() noexcept {
     if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
         ::uv_walk(loop_, [](uv_handle_t* handle, void*) {
             if (!::uv_is_closing(handle)) {
-                if (handle->type == UV_TCP && handle->data) {
+                if (handle->type == UV_POLL && handle->data) {
                     auto l = (xq::net::Listener*)handle->data;
                     l->stop();
                 } else {

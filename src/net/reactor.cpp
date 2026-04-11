@@ -47,8 +47,6 @@ void
 xq::net::Reactor::on_new_fd(uv_async_t* handle) noexcept {
     auto reactor = (xq::net::Reactor*)handle->loop->data;
 
-    SOCKET fd;
-    int r;
     Event ev;
     while (reactor->pending_fds_.dequeue(ev)) {
         switch (ev.first) {
