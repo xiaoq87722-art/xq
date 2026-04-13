@@ -28,8 +28,8 @@ public:
 
 
     virtual void
-    on_data(xq::net::Session* s, const char* data, size_t len) override {
-        s->send(const_cast<char*>(data), len);
+    on_data(const xq::net::Reactor* r, xq::net::Session* s, const char* data, size_t len) override {
+        s->send(r, const_cast<char*>(data), len);
     }
 };
 

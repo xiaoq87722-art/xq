@@ -59,7 +59,7 @@ public:
 
 
     void
-    send(char* data, size_t len) noexcept;
+    send(const Reactor* r, char* data, size_t len) noexcept;
 
 
 private:

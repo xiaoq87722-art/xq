@@ -11,6 +11,7 @@ namespace xq::net {
 
 class Acceptor;
 class Listener;
+class Reactor;
 
 
 class IService {
@@ -19,7 +20,7 @@ public:
     virtual void on_stop(Listener* l) = 0;
     virtual void on_connected(Session* s) = 0;
     virtual void on_disconnected(Session* s) = 0;
-    virtual void on_data(Session* s, const char* data, size_t len) = 0;
+    virtual void on_data(const Reactor* r, Session* s, const char* data, size_t len) = 0;
 }; // class IService;
 
 

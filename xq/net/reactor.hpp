@@ -90,6 +90,10 @@ private:
     on_stopped() noexcept;
 
 
+    void
+    on_send(void* arg) noexcept;
+
+
     uv_loop_t* loop_ { nullptr };
     uv_async_t* async_ { nullptr };
     std::atomic<int> state_ { STATE_STOPPED };

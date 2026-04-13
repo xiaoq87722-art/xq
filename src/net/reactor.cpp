@@ -58,6 +58,13 @@ xq::net::Reactor::event_handle(uv_async_t* handle) noexcept {
             case EVENT_ON_STOP:
                 reactor->on_stopped();
                 break;
+
+            case EVENT_ON_SEND:
+                reactor->on_send(ev.second);
+                break;
+
+            default:
+                break;
         }
     }
 }
@@ -105,6 +112,14 @@ xq::net::Reactor::on_stopped() noexcept {
 
 
 void
+xq::net::Reactor::on_send(void* arg) noexcept {
+    auto params = (OnSendArg*)arg;
+    params->s->send(this, params->data, params->len);
+    delete params;
+}
+
+
+void
 xq::net::Reactor::on_read_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) noexcept {
     buf->base = (char*)xq::utils::malloc(suggested_size);
     buf->len = suggested_size;
@@ -116,7 +131,7 @@ xq::net::Reactor::on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* bu
     Session* s = (Session*)stream->data;
     
     if (nread > 0) {
-        s->listener()->service()->on_data(s, buf->base, nread);
+        s->listener()->service()->on_data(s->reactor(), s, buf->base, nread);
     } else if (nread == UV_EOF) {
         ::uv_close((uv_handle_t*)stream, [](uv_handle_t* handle) {
             Session* s = (Session*)handle->data;
