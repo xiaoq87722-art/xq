@@ -4,7 +4,8 @@
 
 void
 xq::net::Listener::start(Acceptor* acceptor, uv_poll_cb cb) noexcept {
-    xINFO("{} 开启监听", host_);
+    service_->on_start(this);
+    acceptor_ = acceptor;
 
     fd_ = xq::net::tcp_listen(host_.c_str(), 256*1024, 256*1024);
     ASSERT(fd_ != INVALID_SOCKET, "tcp_listen failed: [{}] {}", errno, ::strerror(errno));

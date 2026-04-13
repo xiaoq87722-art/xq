@@ -37,7 +37,8 @@ xq::net::Acceptor::on_accept(uv_poll_t* server, int status, int events) noexcept
             }
 
             auto r = next_reactor(Acceptor::instance()->reactors_);
-            r->post({ EVENT_ON_ACCEPT, (void*)(uintptr_t)cfd });
+            auto arg = new OnAcceptArg(cfd, l);
+            r->post({ EVENT_ON_ACCEPT, (void*)arg });
         }
     }
 }

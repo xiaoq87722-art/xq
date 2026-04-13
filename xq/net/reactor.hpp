@@ -5,6 +5,7 @@
 #include "xq/net/net.in.h"
 #include "xq/net/event.hpp"
 #include "xq/net/conf.hpp"
+#include "xq/net/session.hpp"
 #include "xq/utils/spsc.hpp"
 #include <atomic>
 #include <uv.h>
@@ -22,6 +23,10 @@ class Reactor {
 
 
 public:
+    static void
+    on_write(uv_write_t* req, int status) noexcept;
+
+
     explicit Reactor() noexcept {}
 
 
@@ -48,17 +53,24 @@ public:
 
 private:
     static void
-    on_new_fd(uv_async_t* handle) noexcept;
+    event_handle(uv_async_t* handle) noexcept;
+
+
+    static void
+    on_read_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) noexcept;
+
+
+    static void
+    on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) noexcept;
 
 
     void
-    add_session(SOCKET fd, uv_tcp_t* s) noexcept {
-        xINFO("{} 连接成功", fd);
+    add_session(SOCKET fd, Session* s) noexcept {
         sessions_[fd] = s;
     }
 
 
-    uv_tcp_t*
+    Session*
     get_session(SOCKET fd) noexcept {
         return sessions_[fd];
     }
@@ -71,7 +83,7 @@ private:
 
 
     void
-    on_accept(SOCKET fd) noexcept;
+    on_accept(void* arg) noexcept;
 
 
     void
@@ -82,7 +94,7 @@ private:
     uv_async_t* async_ { nullptr };
     std::atomic<int> state_ { STATE_STOPPED };
     xq::utils::SPSC<Event, 1024> pending_fds_;
-    std::map<SOCKET, uv_tcp_t*> sessions_;
+    std::map<SOCKET, Session*> sessions_;
 }; // class Reactor;
 
 
