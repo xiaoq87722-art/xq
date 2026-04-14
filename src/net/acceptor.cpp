@@ -36,8 +36,14 @@ xq::net::Acceptor::on_accept(uv_poll_t* server, int status, int events) noexcept
                 return;
             }
 
+            if (cfd >= MAX_CONN) {
+                xERROR("too many connections");
+                ::close(cfd);
+                continue;
+            }
+
             auto r = next_reactor(Acceptor::instance()->reactors_);
-            auto arg = new OnAcceptArg(cfd, l);
+            auto arg = new OnAcceptArg{ .fd = cfd, .l = l };
             r->post({ EVENT_ON_ACCEPT, (void*)arg });
         }
     }
@@ -104,6 +110,18 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
 
         reactors_.clear();
         threads_.clear();
+
+        for (int i = 0; i < MAX_CONN; ++i) {
+            auto s = sessions_[i];
+            if (s) {
+                if (s->data) {
+                    xq::utils::free(s->data);
+                }
+                xq::utils::free(s);
+                sessions_[i] = nullptr;
+            }
+        }
+
     } while(0);
 
     int state_stopping = STATE_STOPPING;

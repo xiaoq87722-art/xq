@@ -29,7 +29,7 @@ public:
 
     virtual void
     on_data(xq::net::Context* ctx, const char* data, size_t len) override {
-        ctx->send(const_cast<char*>(data), len);
+        ctx->send(data, len);
     }
 };
 

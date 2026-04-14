@@ -51,19 +51,6 @@ public:
     post(Event ev);
 
 
-private:
-    static void
-    event_handle(uv_async_t* handle) noexcept;
-
-
-    static void
-    on_read_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) noexcept;
-
-
-    static void
-    on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) noexcept;
-
-
     void
     add_session(SOCKET fd, Session* s) noexcept {
         sessions_[fd] = s;
@@ -80,6 +67,19 @@ private:
     remove_session(SOCKET fd) noexcept {
         sessions_.erase(fd);
     }
+
+
+private:
+    static void
+    event_handle(uv_async_t* handle) noexcept;
+
+
+    static void
+    on_read_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) noexcept;
+
+
+    static void
+    on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) noexcept;
 
 
     void

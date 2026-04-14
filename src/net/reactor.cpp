@@ -3,6 +3,19 @@
 #include "xq/net/acceptor.hpp"
 
 
+static void
+on_reactor_stopped(uv_handle_t* handle) noexcept {
+    if (handle->type == UV_TCP && handle->data) {
+        xq::net::Session* s = (xq::net::Session*)handle->data;
+        s->listener()->service()->on_disconnected(s);
+        s->reactor()->remove_session(s->fd());
+        s->release();
+    } else {
+        xq::utils::free(handle);
+    }
+}
+
+
 void
 xq::net::Reactor::run() {
     int stopped_state = STATE_STOPPED;
@@ -26,6 +39,7 @@ xq::net::Reactor::run() {
     ASSERT(r == 0, "uv_loop_close failed: [{}] {}", r, ::uv_strerror(r));
 
     xq::utils::free(loop_);
+    sessions_.clear();
     state_.exchange(STATE_STOPPED);
 }
 
@@ -76,8 +90,12 @@ xq::net::Reactor::on_accept(void* arg) noexcept {
     auto fd = params->fd;
     uv_tcp_t* c = Acceptor::instance()->sessions()[fd];
     if (!c) {
-        Acceptor::instance()->sessions()[fd] = c = new uv_tcp_t;
+        Acceptor::instance()->sessions()[fd] = c = (uv_tcp_t*)xq::utils::malloc(sizeof(uv_tcp_t), true);
+        c->data = (Session*)xq::utils::malloc(sizeof(Session), true);
     }
+
+    auto s = (Session*)(c->data);
+    s->init(c, params->l, this);
 
     int r = ::uv_tcp_init(loop_, c);
     ASSERT(r == 0, "uv_tcp_init failed: [{}] {}", r, ::uv_strerror(r));
@@ -88,8 +106,6 @@ xq::net::Reactor::on_accept(void* arg) noexcept {
     r = ::uv_read_start((uv_stream_t*)c, on_read_alloc, on_read);
     ASSERT(r == 0, "uv_read_start failed: [{}] {}", r, ::uv_strerror(r));
 
-    Session* s = new Session(c, params->l, this);
-    c->data = s;
     add_session(fd, s);
     params->l->service()->on_connected(s);
     delete params;
@@ -102,9 +118,7 @@ xq::net::Reactor::on_stopped() noexcept {
     if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
         ::uv_walk(loop_, [](uv_handle_t* handle, void*) {
             if (!::uv_is_closing(handle)) {
-                ::uv_close(handle, [](uv_handle_t* handle) {
-                    xq::utils::free(handle);
-                });
+                ::uv_close(handle, on_reactor_stopped);
             }
         }, nullptr);
     }
@@ -114,8 +128,18 @@ xq::net::Reactor::on_stopped() noexcept {
 void
 xq::net::Reactor::on_send(void* arg) noexcept {
     auto params = (OnSendArg*)arg;
-    params->s->send(this, params->data, params->len);
-    delete params;
+    auto uv = params->s->uv();
+
+    if (uv && !::uv_is_closing((uv_handle_t*)uv)) {
+        uv_write_t* req = (uv_write_t*)xq::utils::malloc(sizeof(uv_write_t));
+        req->data = params->data;
+        uv_buf_t wrbuf = uv_buf_init(params->data, params->len);
+        ::uv_write(req, (uv_stream_t*)params->s->uv(), &wrbuf, 1, Session::on_write);
+    } else {
+        xq::utils::free(params->data);
+    }
+    
+    xq::utils::free(params);
 }
 
 
@@ -133,21 +157,16 @@ xq::net::Reactor::on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* bu
     if (nread > 0) {
         Context ctx { .reactor = s->reactor(), .session = s };
         s->listener()->service()->on_data(&ctx, buf->base, nread);
-    } else if (nread == UV_EOF) {
+    } else if (nread < 0) {
+        if (nread != UV_EOF) {
+            xERROR("on_read failed: [{}] {}", nread, ::uv_strerror(nread));
+        }
+
         ::uv_close((uv_handle_t*)stream, [](uv_handle_t* handle) {
             Session* s = (Session*)handle->data;
             s->listener()->service()->on_disconnected(s);
             s->reactor()->remove_session(s->fd());
-            xq::utils::free(s->uv());
-            delete s;
-        });
-    } else if (nread < 0) {
-        xINFO("[{}] error: [{}] {}", s->fd(), (int)nread, ::uv_strerror((int)nread));
-        ::uv_close((uv_handle_t*)stream, [](uv_handle_t* handle) {
-            Session* s = (Session*)handle->data;
-            s->reactor()->remove_session(s->fd());
-            xq::utils::free(s->uv());
-            delete s;
+            s->release();
         });
     }
 

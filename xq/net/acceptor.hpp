@@ -25,6 +25,9 @@ class Acceptor {
 
 
 public:
+    static constexpr int MAX_CONN = 100000;
+
+
     static Acceptor*
     instance() noexcept {
         static Acceptor acceptor;
@@ -74,7 +77,7 @@ private:
     std::atomic<int> state_ { STATE_STOPPED };
     std::vector<Reactor*> reactors_;
     std::vector<std::thread> threads_;
-    uv_tcp_t* sessions_[100000];
+    uv_tcp_t* sessions_[MAX_CONN] { nullptr };
 }; // class Acceptor;
 
 

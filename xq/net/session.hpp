@@ -14,18 +14,36 @@ class Listener;
 
 class Session {
 public:
-    Session(uv_tcp_t* uv, Listener* listener, Reactor* reactor)
-        : uv_(uv)
-        , listener_(listener)
-        , reactor_(reactor) {
-            ::uv_fileno((const uv_handle_t*)uv_, &fd_);
-            socklen_t addrlen = sizeof(addr_);
-            ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
-        }
+    static void
+    on_write(uv_write_t* req, int status) noexcept;
+
+
+    Session()
+    {}
 
 
     ~Session()
     {}
+
+
+    void
+    init(uv_tcp_t* uv, Listener* listener, Reactor* reactor) noexcept {
+        uv_ = uv;
+        listener_ = listener;
+        reactor_ = reactor;
+
+        ::uv_fileno((const uv_handle_t*)uv_, &fd_);
+        socklen_t addrlen = sizeof(addr_);
+        ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
+    }
+
+
+    void
+    release() noexcept {
+        if (fd_ != INVALID_SOCKET) {
+            fd_ = INVALID_SOCKET;
+        }
+    }
 
 
     uv_tcp_t*
