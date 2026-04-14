@@ -6,7 +6,7 @@
 #include "xq/net/event.hpp"
 #include "xq/net/conf.hpp"
 #include "xq/net/session.hpp"
-#include "xq/utils/spsc.hpp"
+#include "xq/utils/mpsc.hpp"
 #include <atomic>
 
 
@@ -102,8 +102,8 @@ private:
     uv_loop_t* loop_ { nullptr };
     uv_async_t* async_ { nullptr };
     std::atomic<int> state_ { STATE_STOPPED };
-    xq::utils::SPSC<Event, 1024> pending_fds_;
-    std::map<SOCKET, Session*> sessions_;
+    xq::utils::MPSC<Event> pending_fds_ { 8, 1024 };
+    std::unordered_map<SOCKET, Session*> sessions_;
     WriteBuf::Pool wbuf_pool_;
 }; // class Reactor;
 

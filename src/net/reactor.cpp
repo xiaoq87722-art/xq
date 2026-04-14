@@ -41,6 +41,18 @@ xq::net::Reactor::run() {
     xq::utils::free(loop_);
     sessions_.clear();
     wbuf_pool_.clear();
+
+    Event evs[64];
+    size_t n;
+    while ((n = pending_fds_.try_dequeue_bulk(evs, 64)) > 0) {
+        for (size_t i = 0; i < n; ++i) {
+            auto cmd = evs[i].first;
+            if (cmd == EVENT_ON_SEND || cmd == EVENT_ON_STOP) {
+                xq::utils::free(evs[i].second);
+            }
+        }
+    }
+
     state_.exchange(STATE_STOPPED);
 }
 
@@ -63,32 +75,36 @@ void
 xq::net::Reactor::event_handle(uv_async_t* handle) noexcept {
     auto reactor = (xq::net::Reactor*)handle->loop->data;
 
-    Event ev;
-    while (reactor->pending_fds_.dequeue(ev)) {
-        switch (ev.first) {
-            case EVENT_ON_ACCEPT:
-                reactor->on_accept(ev.second);
-                break;
+    Event evs[64];
+    size_t n;
+    while ((n = reactor->pending_fds_.try_dequeue_bulk(evs, 64)) > 0) {
+        for (size_t i = 0; i < n; ++i) {
+            auto& ev = evs[i];
+            switch (ev.first) {
+                case EVENT_ON_ACCEPT:
+                    reactor->on_accept(ev.second);
+                    break;
 
-            case EVENT_ON_STOP:
-                reactor->on_stopped();
-                break;
+                case EVENT_ON_STOP:
+                    reactor->on_stopped();
+                    break;
 
-            case EVENT_ON_SEND:
-                reactor->on_send(ev.second);
-                break;
+                case EVENT_ON_SEND:
+                    reactor->on_send(ev.second);
+                    break;
 
-            default:
-                break;
+                default:
+                    break;
+            }
         }
     }
 }
 
 
 void
-xq::net::Reactor::on_accept(void* arg) noexcept {
-    auto params = (OnAcceptArg*)arg;
-    auto fd = params->fd;
+xq::net::Reactor::on_accept(void* params) noexcept {
+    auto arg = (OnAcceptArg*)params;
+    auto fd = arg->fd;
     uv_tcp_t* c = Acceptor::instance()->sessions()[fd];
     if (!c) {
         Acceptor::instance()->sessions()[fd] = c = (uv_tcp_t*)xq::utils::malloc(sizeof(uv_tcp_t), true);
@@ -96,7 +112,7 @@ xq::net::Reactor::on_accept(void* arg) noexcept {
     }
 
     auto s = (Session*)(c->data);
-    s->init(c, params->l, this);
+    s->init(c, arg->l, this);
 
     int r = ::uv_tcp_init(loop_, c);
     ASSERT(r == 0, "uv_tcp_init failed: [{}] {}", r, ::uv_strerror(r));
@@ -108,8 +124,8 @@ xq::net::Reactor::on_accept(void* arg) noexcept {
     ASSERT(r == 0, "uv_read_start failed: [{}] {}", r, ::uv_strerror(r));
 
     add_session(fd, s);
-    params->l->service()->on_connected(s);
-    delete params;
+    arg->l->service()->on_connected(s);
+    xq::utils::free(arg);
 }
 
 
@@ -134,7 +150,7 @@ xq::net::Reactor::on_send(void* arg) noexcept {
     if (uv && !::uv_is_closing((uv_handle_t*)uv)) {
         auto wb = write_buf_pool().get();
         ::memcpy(wb->data, params->data, params->len);
-        wb->session = params->s;
+        wb->reactor = this;
 
         wb->req.data = wb;
         uv_buf_t wrbuf = uv_buf_init(wb->data, params->len);

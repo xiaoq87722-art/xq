@@ -43,6 +43,18 @@ public:
         if (fd_ != INVALID_SOCKET) {
             fd_ = INVALID_SOCKET;
         }
+
+        if (uv_) {
+            uv_ = nullptr;
+        }
+
+        if (listener_) {
+            listener_ = nullptr;
+        }
+
+        if (reactor_) {
+            reactor_ = nullptr;
+        }
     }
 
 

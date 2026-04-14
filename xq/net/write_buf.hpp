@@ -9,12 +9,12 @@
 namespace xq::net {
 
 
-class Session;
+class Reactor;
 
 
 struct WriteBuf {
     uv_write_t req;
-    Session* session;
+    Reactor* reactor;
     char data[WBUF_MAX];
 
 
