@@ -131,7 +131,8 @@ xq::net::Reactor::on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* bu
     Session* s = (Session*)stream->data;
     
     if (nread > 0) {
-        s->listener()->service()->on_data(s->reactor(), s, buf->base, nread);
+        Context ctx { .reactor = s->reactor(), .session = s };
+        s->listener()->service()->on_data(&ctx, buf->base, nread);
     } else if (nread == UV_EOF) {
         ::uv_close((uv_handle_t*)stream, [](uv_handle_t* handle) {
             Session* s = (Session*)handle->data;

@@ -8,9 +8,11 @@
 namespace xq::net {
 
 
+class Session;
 class Listener;
-typedef std::pair<int, void*> Event;
 
+
+typedef std::pair<int, void*> Event;
 
 
 constexpr int EVENT_ON_STOP = 1;
