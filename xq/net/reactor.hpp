@@ -2,13 +2,12 @@
 #define __XQ_NET_REACTOR_HPP__
 
 
-#include "xq/net/net.in.h"
+#include "xq/net/write_buf.hpp"
 #include "xq/net/event.hpp"
 #include "xq/net/conf.hpp"
 #include "xq/net/session.hpp"
 #include "xq/utils/spsc.hpp"
 #include <atomic>
-#include <uv.h>
 
 
 namespace xq {
@@ -63,6 +62,12 @@ public:
     }
 
 
+    WriteBuf::Pool&
+    write_buf_pool() noexcept {
+        return wbuf_pool_;
+    }
+
+
     void
     remove_session(SOCKET fd) noexcept {
         sessions_.erase(fd);
@@ -99,6 +104,7 @@ private:
     std::atomic<int> state_ { STATE_STOPPED };
     xq::utils::SPSC<Event, 1024> pending_fds_;
     std::map<SOCKET, Session*> sessions_;
+    WriteBuf::Pool wbuf_pool_;
 }; // class Reactor;
 
 

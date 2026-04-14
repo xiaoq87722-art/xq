@@ -28,8 +28,8 @@ struct OnAcceptArg {
 constexpr int EVENT_ON_SEND = 3;
 struct OnSendArg {
     Session* s;
-    char* data;
     size_t len;
+    char data[WBUF_MAX];
 };
 
 

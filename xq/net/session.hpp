@@ -70,6 +70,12 @@ public:
     }
 
 
+    char*
+    rbuf() noexcept {
+        return rbuf_;
+    }
+
+
     std::string
     to_string() const noexcept {
         return std::format("[{}] {}", fd_, sockaddr_to_string((sockaddr*)&addr_));
@@ -86,6 +92,7 @@ private:
     Listener* listener_ { nullptr };
     Reactor* reactor_ { nullptr };
     sockaddr_storage addr_ {};
+    char rbuf_[RBUF_MAX];
 }; // class Session;
 
     

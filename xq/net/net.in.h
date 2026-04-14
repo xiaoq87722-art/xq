@@ -14,14 +14,17 @@ typedef int SOCKET;
 #define INVALID_SOCKET (-1)
 
 
+constexpr int RBUF_MAX = 1024 * 512;
+constexpr int WBUF_MAX = 1024 * 512;
+
+
 constexpr int STATE_STOPPED = 0;  // 停止状态
 constexpr int STATE_STARTING = 1; // 正在开启
 constexpr int STATE_RUNNING = 2;  // 运行状态
 constexpr int STATE_STOPPING = 3; // 正在停止
 
 
-namespace xq {
-namespace net {
+namespace xq::net {
 
 
 /**
@@ -89,8 +92,7 @@ sockaddr_to_string(const sockaddr* addr) noexcept {
 }
 
 
-} // namespace net
-} // namespace xq
+} // namespace xq::net
 
 
 #endif // __XQ_NET_IN_HPP__

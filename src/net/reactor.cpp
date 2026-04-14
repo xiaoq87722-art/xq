@@ -40,6 +40,7 @@ xq::net::Reactor::run() {
 
     xq::utils::free(loop_);
     sessions_.clear();
+    wbuf_pool_.clear();
     state_.exchange(STATE_STOPPED);
 }
 
@@ -131,12 +132,13 @@ xq::net::Reactor::on_send(void* arg) noexcept {
     auto uv = params->s->uv();
 
     if (uv && !::uv_is_closing((uv_handle_t*)uv)) {
-        uv_write_t* req = (uv_write_t*)xq::utils::malloc(sizeof(uv_write_t));
-        req->data = params->data;
-        uv_buf_t wrbuf = uv_buf_init(params->data, params->len);
-        ::uv_write(req, (uv_stream_t*)params->s->uv(), &wrbuf, 1, Session::on_write);
-    } else {
-        xq::utils::free(params->data);
+        auto wb = write_buf_pool().get();
+        ::memcpy(wb->data, params->data, params->len);
+        wb->session = params->s;
+
+        wb->req.data = wb;
+        uv_buf_t wrbuf = uv_buf_init(wb->data, params->len);
+        ::uv_write(&wb->req, (uv_stream_t*)params->s->uv(), &wrbuf, 1, Session::on_write);
     }
     
     xq::utils::free(params);
@@ -145,8 +147,9 @@ xq::net::Reactor::on_send(void* arg) noexcept {
 
 void
 xq::net::Reactor::on_read_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) noexcept {
-    buf->base = (char*)xq::utils::malloc(suggested_size);
-    buf->len = suggested_size;
+    Session* s = (Session*)handle->data;
+    buf->base = s->rbuf();
+    buf->len = RBUF_MAX;
 }
 
 
@@ -168,9 +171,5 @@ xq::net::Reactor::on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* bu
             s->reactor()->remove_session(s->fd());
             s->release();
         });
-    }
-
-    if (buf->base) {
-        xq::utils::free(buf->base);
     }
 }
