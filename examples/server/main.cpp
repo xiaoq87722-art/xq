@@ -1,4 +1,4 @@
-#include "xq/net/acceptor.hpp"
+#include "xq/xq.h"
 
 
 class EchoService : public xq::net::IService {

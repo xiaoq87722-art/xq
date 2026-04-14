@@ -10,8 +10,7 @@
 #include <atomic>
 
 
-namespace xq {
-namespace net {
+namespace xq::net {
 
 
 class Reactor {
@@ -108,8 +107,7 @@ private:
 }; // class Reactor;
 
 
-} // namespace net
-} // namespace xq
+} // namespace xq::net
 
 
 #endif // __XQ_NET_REACTOR_HPP__

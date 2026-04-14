@@ -6,8 +6,7 @@
 #include "xq/utils/log.hpp"
 
 
-namespace xq {
-namespace utils {
+namespace xq::utils {
 
 
 /**
@@ -21,8 +20,7 @@ systime() noexcept{
 }
 
 
-} // namespace utils
-} // namespace xq
+} // namespace xq::utils
 
 
 #endif // __XQ_UTILS_TIME_HPP__

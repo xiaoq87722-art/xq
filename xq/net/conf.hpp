@@ -2,8 +2,7 @@
 #define __XQ_NET_CONF_HPP__
 
 
-namespace xq {
-namespace net {
+namespace xq::net {
 
 
 class Conf {
@@ -79,8 +78,7 @@ private:
 }; // class Conf;
 
         
-} // namespace net
-} // namespace xq
+} // namespace xq::net
 
 
 #endif // __XQ_NET_CONF_HPP__

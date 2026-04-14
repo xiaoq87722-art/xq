@@ -1,11 +1,11 @@
 #ifndef __XQ_UTILS_MEMORY_HPP__
 #define __XQ_UTILS_MEMORY_HPP__
 
+
 #include <mimalloc.h>
 
 
-namespace xq {
-namespace utils {
+namespace xq::utils {
 
 
 inline void* 
@@ -29,8 +29,7 @@ realloc(void* ptr, size_t n) {
 }
 
 
-} // namespace utils
-} // namespace xq
+} // namespace xq::utils
 
 
 #endif // __XQ_UTILS_MEMORY_HPP__

@@ -13,8 +13,7 @@
 #include "xq/utils/memory.hpp"
 
 
-namespace xq {
-namespace utils {
+namespace xq::utils {
 
 
 template<typename T>
@@ -190,8 +189,7 @@ private:
 }; // class MPSC;
 
 
-} // namespace utils
-} // namespace xq;
+} // namespace xq::utils;
 
 
 #endif // __XQ_UTILS_MPSC_HPP__

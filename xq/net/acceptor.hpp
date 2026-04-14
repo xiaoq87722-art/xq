@@ -10,8 +10,7 @@
 #include "xq/net/conf.hpp"
 
 
-namespace xq {
-namespace net {
+namespace xq::net {
 
 
 /**
@@ -81,8 +80,7 @@ private:
 }; // class Acceptor;
 
 
-} // namespace net
-} // namespace xq
+} // namespace xq::net
 
 
 #endif // __XQ_NET_ACCEPTOR_HPP__

@@ -8,8 +8,7 @@
 #include "xq/utils/log.hpp"
 
 
-namespace xq {
-namespace utils {
+namespace xq::utils {
 
 
 /**
@@ -19,8 +18,7 @@ void
 regist_signal(__sighandler_t handle, const std::initializer_list<int>& siglist);
 
     
-} // namespace utils
-} // namespace xq
+} // namespace xq::utils
 
 
 #endif // __XQ_UTILS_SIGNAL_HPP__

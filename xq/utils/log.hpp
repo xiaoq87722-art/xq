@@ -5,16 +5,14 @@
 #include <spdlog/spdlog.h>
 
 
-namespace xq {
-namespace utils {
+namespace xq::utils {
 
 
 void 
 init_log(const std::string& log_dir = "./logs/");
 
 
-} // namespace utils
-} // namespace xq
+} // namespace xq::utils
 
 
 // 日志宏定义
