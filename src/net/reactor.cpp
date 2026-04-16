@@ -26,11 +26,11 @@ xq::net::Reactor::run() {
 
     static constexpr int MAX_EVENT = 4096;
     ::epoll_event ev{}, events[MAX_EVENT];
-    EpollArg evarg;
+    EpollArg ea;
 
-    evarg.type = EE_TYPE_QUEUE;
-    evarg.data = this;
-    ev.data.ptr = &evarg;
+    ea.type = EA_TYPE_QUEUE;
+    ea.data = this;
+    ev.data.ptr = &ea;
     ev.events = EPOLLIN | EPOLLET;
     ::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev);
 
@@ -54,7 +54,7 @@ xq::net::Reactor::run() {
             auto& ev = events[i];
             auto eev = (EpollArg*)ev.data.ptr;
 
-            if (eev->type == EE_TYPE_QUEUE) {
+            if (eev->type == EA_TYPE_QUEUE) {
                 custom_handle(eev);
             } else {
                 // TODO: 客户端读事件
@@ -83,9 +83,53 @@ xq::net::Reactor::run() {
 
 
 void
+xq::net::Reactor::stop() {
+    static constexpr uint64_t stop = 1;
+    ASSERT(evque_.enqueue(std::move(Event{ EV_CMD_STOP, nullptr })), "evque_ 队列已满");
+    ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
+}
+
+
+void
+xq::net::Reactor::post(Event ev) noexcept {
+    static constexpr uint64_t event = 1;
+    ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
+    ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+}
+
+
+void
+xq::net::Reactor::on_accept(void* params) noexcept {
+    auto arg = (OnAcceptArg*)params;
+    auto fd = arg->fd;
+
+    Session* s = Acceptor::instance()->sessions()[fd];
+    if (!s) {
+        Acceptor::instance()->sessions()[fd] = s = (Session*)xq::utils::malloc(sizeof(Session));
+    }
+    s->init(fd, arg->l, this);
+
+    ::epoll_event ev;
+    ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
+    ev.data.ptr = s;
+    ::epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev);
+
+    add_session(fd, s);
+    arg->l->service()->on_connected(s);
+    xq::utils::free(params);
+}
+
+
+void
+xq::net::Reactor::on_send(void* arg) noexcept {
+    // TODO
+}
+
+
+void
 xq::net::Reactor::custom_handle(EpollArg* ev) noexcept {
     int n;
-    EpollArg evs[16];
+    Event evs[16];
     uint64_t val;
 
     while (1) {
@@ -103,62 +147,18 @@ xq::net::Reactor::custom_handle(EpollArg* ev) noexcept {
 
         for (int i = 0; i < n; ++i) {
             switch (evs[i].cmd) {
-            case EE_CMD_STOP:
+            case EV_CMD_STOP:
                 state_.store(STATE_STOPPING);
                 break;
 
-            case EE_CMD_ACCEPT:
+            case EV_CMD_ACCEPT:
                 on_accept(evs[i].data);
                 break;
 
-            case EE_CMD_SEND:
+            case EV_CMD_SEND:
                 on_send(evs[i].data);
                 break;
             }
         }
     } // while (!evque_.empty());
-}
-
-
-void
-xq::net::Reactor::stop() {
-    static constexpr uint64_t stop = 1;
-    ASSERT(evque_.enqueue(std::move(EpollArg{ EE_TYPE_QUEUE, EE_CMD_STOP, nullptr })), "evque_ 队列已满");
-    ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
-}
-
-
-void
-xq::net::Reactor::post(EpollArg ev) noexcept {
-    static constexpr uint64_t event = 1;
-    ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
-    ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
-}
-
-
-void
-xq::net::Reactor::on_accept(void* params) noexcept {
-    auto arg = (OnAcceptArg*)params;
-    auto fd = arg->fd;
-
-    Session* s = Acceptor::instance()->sessions()[fd];
-    if (!s) {
-        Acceptor::instance()->sessions()[fd] = s = (Session*)xq::utils::malloc(sizeof(Session));
-    }
-    s->init(fd, arg->l, this);
-    
-    ::epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
-    ev.data.ptr = s;
-    ::epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev);
-
-    add_session(fd, s);
-    arg->l->service()->on_connected(s);
-    xq::utils::free(params);
-}
-
-
-void
-xq::net::Reactor::on_send(void* arg) noexcept {
-    // TODO   
 }

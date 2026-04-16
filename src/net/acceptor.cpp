@@ -34,8 +34,8 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     }
 
     static constexpr int MAX_EVENT = 10;
-    ::epoll_event ep_ev{}, ep_events[MAX_EVENT];
-    EpollArg ev;
+    ::epoll_event ev{}, events[MAX_EVENT];
+    EpollArg ea;
 
     std::signal(SIGINT, signal_handle);
     std::signal(SIGTERM, signal_handle);
@@ -56,25 +56,24 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     evfd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     ASSERT(evfd_ != -1, "eventfd failed: [{}] {}", errno, ::strerror(errno));
 
-    ev.type = EE_TYPE_QUEUE;
-    ev.cmd = EE_CMD_STOP;
-    ev.data = this;
-    ep_ev.data.ptr = &ev;
-    ep_ev.events = EPOLLIN | EPOLLET;
-    ::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ep_ev);
+    ea.type = EA_TYPE_QUEUE;
+    ea.data = this;
+    ev.data.ptr = &ea;
+    ev.events = EPOLLIN | EPOLLET;
+    ::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev);
 
     for (auto l: listeners) {
         l->start();
-        ep_ev.events = EPOLLIN | EPOLLET;
-        ep_ev.data.ptr = l->arg();
-        ::epoll_ctl(epfd_, EPOLL_CTL_ADD, l->fd(), &ep_ev);
+        ev.events = EPOLLIN | EPOLLET;
+        ev.data.ptr = l->arg();
+        ::epoll_ctl(epfd_, EPOLL_CTL_ADD, l->fd(), &ev);
     }
 
     int err = 0;
     state_.store(STATE_RUNNING);
 
     while (1) {
-        int nfds = ::epoll_wait(epfd_, ep_events, MAX_EVENT, -1);
+        int nfds = ::epoll_wait(epfd_, events, MAX_EVENT, -1);
         if (nfds < 0) {
             err = errno;
             if (err == EINTR) {
@@ -86,15 +85,15 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         }
 
         for (int i = 0; i < nfds; ++i) {
-            auto& ev = ep_events[i];
+            auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
 
             switch (ea->type) {
-            case EE_TYPE_LISTENER:
+            case EA_TYPE_LISTENER:
                 listener_handle(ea);
                 break;
             
-            case EE_TYPE_QUEUE:
+            case EA_TYPE_QUEUE:
                 queue_handle(ea);
                 break;
             
@@ -109,7 +108,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     }
 
     for (auto l: listeners) {
-        ::epoll_ctl(epfd_, EPOLL_CTL_DEL, l->fd(), &ep_ev);
+        ::epoll_ctl(epfd_, EPOLL_CTL_DEL, l->fd(), &ev);
         l->stop();
     }
 
@@ -193,11 +192,11 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
             break;
         }
 
-        OnAcceptArg* oa_arg = (OnAcceptArg*)xq::utils::malloc(sizeof(OnAcceptArg));
-        oa_arg->fd = cfd;
-        oa_arg->l = l;
+        OnAcceptArg* arg = (OnAcceptArg*)xq::utils::malloc(sizeof(OnAcceptArg));
+        arg->fd = cfd;
+        arg->l = l;
 
         auto r = next_reactor(reactors_);
-        r->post(EpollArg{ EE_TYPE_QUEUE, EE_CMD_ACCEPT, oa_arg });
+        r->post(Event{ EV_CMD_ACCEPT, arg });
     }   
 }

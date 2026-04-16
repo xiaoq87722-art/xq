@@ -42,7 +42,7 @@ public:
         : service_(service) {
         ASSERT(endpoint && port > 0, "params is invalid");
         host_ = std::format("{}:{}", endpoint, port);
-        arg_.type = EE_TYPE_LISTENER;
+        arg_.type = EA_TYPE_LISTENER;
         arg_.data = this;
     }
 
@@ -96,7 +96,7 @@ public:
 
 private:
     SOCKET fd_ { INVALID_SOCKET };
-    EpollArg arg_{};
+    EpollArg arg_ {};
     std::string host_ {};
     IService* service_ { nullptr };
 }; // class Listener;

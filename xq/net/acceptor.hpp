@@ -38,14 +38,6 @@ public:
     {}
 
 
-    void
-    run(const std::vector<Listener*>& listeners) noexcept;
-
-
-    void
-    stop() noexcept;
-
-
     bool
     running() const noexcept {
         return state_ == STATE_RUNNING;
@@ -64,12 +56,16 @@ public:
     }
 
 
-private:
-    explicit Acceptor() noexcept {}
+    void
+    run(const std::vector<Listener*>& listeners) noexcept;
 
 
     void
-    io_loop() noexcept;
+    stop() noexcept;
+
+
+private:
+    explicit Acceptor() noexcept {}
 
 
     void

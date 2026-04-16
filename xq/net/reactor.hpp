@@ -41,7 +41,7 @@ public:
 
 
     void
-    post(EpollArg ev) noexcept;
+    post(Event ev) noexcept;
 
 
     void
@@ -82,7 +82,7 @@ private:
     SOCKET epfd_ { INVALID_SOCKET };
     SOCKET evfd_ { INVALID_SOCKET };
     std::atomic<int> state_ { STATE_STOPPED };
-    xq::utils::MPSC<EpollArg> evque_ { 8, 1024 };
+    xq::utils::MPSC<Event> evque_ { 8, 1024 };
     std::unordered_map<SOCKET, Session*> sessions_;
 }; // class Reactor;
 

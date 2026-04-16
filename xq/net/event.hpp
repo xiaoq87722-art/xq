@@ -13,18 +13,23 @@ class Session;
 class Listener;
 
 
-constexpr int EE_TYPE_LISTENER = 1;
-constexpr int EE_TYPE_QUEUE = 2;
-constexpr int EE_TYPE_SESSION = 3;
+constexpr int EA_TYPE_LISTENER = 1;
+constexpr int EA_TYPE_QUEUE = 2;
+constexpr int EA_TYPE_SESSION = 3;
 
 
-constexpr int EE_CMD_ACCEPT = 1;
-constexpr int EE_CMD_STOP = 2;
-constexpr int EE_CMD_SEND = 3;
+constexpr int EV_CMD_ACCEPT = 1;
+constexpr int EV_CMD_STOP = 2;
+constexpr int EV_CMD_SEND = 3;
 
 
 struct EpollArg {
     int type;
+    void* data;
+};
+
+
+struct Event {
     int cmd;
     void* data;
 };

@@ -4,7 +4,7 @@ CXX = g++
 CXXFLAGS = -std=c++20 -O3 -DNDEBUG -march=native -flto=auto
 INCLUDE = -I../../ -I/usr/local/include/mimalloc-3.2
 LDFLAGS = -L/usr/local/lib -L/usr/local/lib/mimalloc-3.2
-LIBS = -lspdlog -luring -lmimalloc -luv
+LIBS = -lspdlog -lmimalloc
 
 TARGET = server
 
