@@ -14,10 +14,6 @@ class Listener;
 
 class Session {
 public:
-    static void
-    on_write(uv_write_t* req, int status) noexcept;
-
-
     Session()
     {}
 
@@ -27,12 +23,11 @@ public:
 
 
     void
-    init(uv_tcp_t* uv, Listener* listener, Reactor* reactor) noexcept {
-        uv_ = uv;
+    init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept {
         listener_ = listener;
         reactor_ = reactor;
+        fd_ = fd;
 
-        ::uv_fileno((const uv_handle_t*)uv_, &fd_);
         socklen_t addrlen = sizeof(addr_);
         ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
     }
@@ -44,10 +39,6 @@ public:
             fd_ = INVALID_SOCKET;
         }
 
-        if (uv_) {
-            uv_ = nullptr;
-        }
-
         if (listener_) {
             listener_ = nullptr;
         }
@@ -55,12 +46,6 @@ public:
         if (reactor_) {
             reactor_ = nullptr;
         }
-    }
-
-
-    uv_tcp_t*
-    uv() noexcept {
-        return uv_;
     }
 
 
@@ -100,7 +85,6 @@ public:
 
 private:
     SOCKET fd_ { INVALID_SOCKET };
-    uv_tcp_t* uv_ { nullptr };
     Listener* listener_ { nullptr };
     Reactor* reactor_ { nullptr };
     sockaddr_storage addr_ {};

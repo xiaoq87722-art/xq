@@ -1,8 +1,9 @@
 #ifndef __XQ_NET_LISTENER_HPP_
 #define __XQ_NET_LISTENER_HPP_
 
+
 #include "xq/net/session.hpp"
-#include "xq/net/net.in.h"
+#include "xq/net/event.hpp"
 #include "xq/utils/log.hpp"
 
 
@@ -41,6 +42,8 @@ public:
         : service_(service) {
         ASSERT(endpoint && port > 0, "params is invalid");
         host_ = std::format("{}:{}", endpoint, port);
+        arg_.type = EE_TYPE_LISTENER;
+        arg_.data = this;
     }
 
 
@@ -53,25 +56,30 @@ public:
     }
 
 
+    SOCKET
+    fd() const noexcept {
+        return fd_;
+    }
+
+
     IService*
     service() noexcept {
         return service_;
     }
 
 
+    EpollArg*
+    arg() noexcept {
+        return &arg_;
+    }
+
+
     void
-    start(Acceptor* acceptor, uv_poll_cb cb) noexcept;
+    start() noexcept;
 
 
     void
     stop() {
-        if (poll_handle_) {
-            ::uv_close((uv_handle_t*)poll_handle_, [](uv_handle_t* handle) {
-                xq::utils::free(handle);
-            });
-            poll_handle_ = nullptr;
-        }
-
         if (fd_ != INVALID_SOCKET) {
             service_->on_stop(this);
             ::close(fd_);
@@ -87,11 +95,9 @@ public:
 
 
 private:
-
     SOCKET fd_ { INVALID_SOCKET };
+    EpollArg arg_{};
     std::string host_ {};
-    uv_poll_t* poll_handle_ { nullptr };
-    Acceptor* acceptor_ { nullptr };
     IService* service_ { nullptr };
 }; // class Listener;
 

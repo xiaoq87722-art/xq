@@ -4,13 +4,13 @@
 #include "xq/net/net.in.h"
 #include <immintrin.h>
 #include <cstring>
+#include <csignal>
 #include "xq/net/conf.hpp"
 
 
 static void
-signal_handle(uv_signal_t* handle, int) {
-    auto* a = (xq::net::Acceptor*)handle->loop->data;
-    a->stop();
+signal_handle(int sig) {
+    xq::net::Acceptor::instance()->stop();
 }
 
 
@@ -22,112 +22,134 @@ next_reactor(std::vector<xq::net::Reactor*>& reactors) noexcept {
 
 
 void
-xq::net::Acceptor::on_accept(uv_poll_t* server, int status, int events) noexcept {
-    if (status < 0) {
-        xERROR("on_new_connection failed: [{}] {}", status, ::uv_strerror(status));
+xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
+    int stopped_state = STATE_STOPPED;
+    if (!state_.compare_exchange_strong(stopped_state, STATE_STARTING)) {
         return;
     }
 
-    if (events & UV_READABLE) {
-        while (1) {
-            auto l = (xq::net::Listener*)server->data;
-            auto cfd = l->accept();
-            if (cfd == INVALID_SOCKET) {
-                return;
-            }
+    uint32_t nr = std::thread::hardware_concurrency();
+    if (nr > 2) {
+        nr -= 2;
+    }
 
-            if (cfd >= MAX_CONN) {
-                xERROR("too many connections");
-                ::close(cfd);
+    static constexpr int MAX_EVENT = 10;
+    ::epoll_event ep_ev{}, ep_events[MAX_EVENT];
+    EpollArg ev;
+
+    std::signal(SIGINT, signal_handle);
+    std::signal(SIGTERM, signal_handle);
+
+    for (uint32_t i = 0; i < nr; ++i) {
+        Reactor* r = new Reactor();
+        reactors_.emplace_back(r);
+        threads_.emplace_back(std::thread(std::bind(&xq::net::Reactor::run, r)));
+
+        while(!r->running()) {
+            _mm_pause();
+        }
+    }
+
+    epfd_ = ::epoll_create1(0);
+    ASSERT(epfd_ != -1, "epoll_create1 failed: [{}] {}", errno, ::strerror(errno));
+
+    evfd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    ASSERT(evfd_ != -1, "eventfd failed: [{}] {}", errno, ::strerror(errno));
+
+    ev.type = EE_TYPE_QUEUE;
+    ev.cmd = EE_CMD_STOP;
+    ev.data = this;
+    ep_ev.data.ptr = &ev;
+    ep_ev.events = EPOLLIN | EPOLLET;
+    ::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ep_ev);
+
+    for (auto l: listeners) {
+        l->start();
+        ep_ev.events = EPOLLIN | EPOLLET;
+        ep_ev.data.ptr = l->arg();
+        ::epoll_ctl(epfd_, EPOLL_CTL_ADD, l->fd(), &ep_ev);
+    }
+
+    int err = 0;
+    state_.store(STATE_RUNNING);
+
+    while (1) {
+        int nfds = ::epoll_wait(epfd_, ep_events, MAX_EVENT, -1);
+        if (nfds < 0) {
+            err = errno;
+            if (err == EINTR) {
                 continue;
             }
 
-            auto r = next_reactor(Acceptor::instance()->reactors_);
-            auto arg = (OnAcceptArg*)xq::utils::malloc(sizeof(OnAcceptArg));
-            arg->fd = cfd;
-            arg->l = l;
-            r->post({ EVENT_ON_ACCEPT, (void*)arg });
-        }
-    }
-}
-
-
-void
-xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
-    int stopped_state = STATE_STOPPED;
-
-    do {
-        if (!state_.compare_exchange_strong(stopped_state, STATE_STARTING)) {
+            xERROR("epoll_wait failed: [{}] {}", err, ::strerror(err));
             break;
         }
 
-        loop_ = (uv_loop_t*)xq::utils::malloc(sizeof(uv_loop_t), true);
-        int r = ::uv_loop_init(loop_);
-        ASSERT(r == 0, "uv_loop_init failed: [{}] {}", r, ::uv_strerror(r));
-        loop_->data = this;
+        for (int i = 0; i < nfds; ++i) {
+            auto& ev = ep_events[i];
+            auto ea = (EpollArg*)ev.data.ptr;
 
-        uv_signal_t sigint, sigterm;
-        ::uv_signal_init(loop_, &sigint);
-        ::uv_signal_init(loop_, &sigterm);
-
-        ::uv_signal_start(&sigint, signal_handle, SIGINT);
-        ::uv_signal_start(&sigterm, signal_handle, SIGTERM);
-
-        uint32_t nr = std::thread::hardware_concurrency();
-        if (nr > 2) {
-            nr -= 2;
+            switch (ea->type) {
+            case EE_TYPE_LISTENER:
+                listener_handle(ea);
+                break;
+            
+            case EE_TYPE_QUEUE:
+                queue_handle(ea);
+                break;
+            
+            default:
+                break;
+            }  
         }
 
-        for (uint32_t i = 0; i < nr; ++i) {
-            Reactor* r = new Reactor();
-            reactors_.emplace_back(r);
-            threads_.emplace_back(std::thread(std::bind(&xq::net::Reactor::run, r)));
-
-            while(!r->running()) {
-                _mm_pause();
-            }
+        if (!running()) {
+            break;
         }
+    }
 
-        for (auto l: listeners) {
-            l->start(this, on_accept);
+    for (auto l: listeners) {
+        ::epoll_ctl(epfd_, EPOLL_CTL_DEL, l->fd(), &ep_ev);
+        l->stop();
+    }
+
+    for (auto& r: reactors_) {
+        r->stop();
+    }
+
+    for (auto& t: threads_) {
+        if (t.joinable()) {
+            t.join();
         }
+    }
 
-        state_.exchange(STATE_RUNNING);
-        r = ::uv_run(loop_, UV_RUN_DEFAULT);
-        ASSERT(r == 0, "uv_run has {} active left", r);
+    for (auto r: reactors_) {
+        delete r;
+    }
 
-        for (uint32_t i = 0; i < nr; ++i) {
-            Reactor* r = reactors_[i];
-            r->stop();
-            auto& t = threads_[i];
-            if (t.joinable()) {
-                t.join();
-            }
-            delete r;
+    if (evfd_ != INVALID_SOCKET) {
+        ::close(evfd_);
+        evfd_ = INVALID_SOCKET;
+    }
+    
+    if (epfd_ != INVALID_SOCKET) {
+        ::close(epfd_);
+        epfd_ = INVALID_SOCKET;
+    }
+
+    reactors_.clear();
+    threads_.clear();
+
+    for (int i = 0; i < MAX_CONN; ++i) {
+        auto s = sessions_[i];
+        if (s) {
+            s->release();
+            xq::utils::free(s);
+            sessions_[i] = nullptr;
         }
+    }
 
-        r = ::uv_loop_close(loop_);
-        ASSERT(r == 0, "uv_loop_close failed: [{}] {}", r, ::uv_strerror(r));
-        xq::utils::free(loop_);
-
-        reactors_.clear();
-        threads_.clear();
-
-        for (int i = 0; i < MAX_CONN; ++i) {
-            auto s = sessions_[i];
-            if (s) {
-                if (s->data) {
-                    xq::utils::free(s->data);
-                }
-                xq::utils::free(s);
-                sessions_[i] = nullptr;
-            }
-        }
-
-    } while(0);
-
-    int state_stopping = STATE_STOPPING;
-    state_.compare_exchange_strong(state_stopping, STATE_STOPPED);
+    state_.store(STATE_STOPPED);
 }
 
 
@@ -135,15 +157,47 @@ void
 xq::net::Acceptor::stop() noexcept {
     int state_running = STATE_RUNNING;
     if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
-        ::uv_walk(loop_, [](uv_handle_t* handle, void*) {
-            if (!::uv_is_closing(handle)) {
-                if (handle->type == UV_POLL && handle->data) {
-                    auto l = (xq::net::Listener*)handle->data;
-                    l->stop();
-                } else {
-                    ::uv_close(handle, nullptr);
-                }
-            }
-        }, nullptr);
+        static constexpr uint64_t stop = 1;
+        ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
     }
+}
+
+
+void
+xq::net::Acceptor::queue_handle(EpollArg* ea) noexcept {
+    int n;
+    uint64_t val;
+
+    while (1) {
+        n = ::read(evfd_, &val, sizeof(val));
+        if (n < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                xERROR("read failed: [{}] {}", errno, ::strerror(errno));
+            }
+            break;
+        }
+    }
+}
+
+
+void
+xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
+    auto l = (Listener*)ea->data;
+
+    while (1) {
+        SOCKET cfd = l->accept();
+        if (cfd == INVALID_SOCKET) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                stop();
+            }
+            break;
+        }
+
+        OnAcceptArg* oa_arg = (OnAcceptArg*)xq::utils::malloc(sizeof(OnAcceptArg));
+        oa_arg->fd = cfd;
+        oa_arg->l = l;
+
+        auto r = next_reactor(reactors_);
+        r->post(EpollArg{ EE_TYPE_QUEUE, EE_CMD_ACCEPT, oa_arg });
+    }   
 }

@@ -52,31 +52,40 @@ public:
     }
 
 
-    uv_tcp_t*
+    Session*
     (&sessions() noexcept)[100000] {
         return sessions_;
     }
 
 
-    uv_loop_t*
-    loop() noexcept {
-        return loop_;
+    SOCKET
+    epfd() noexcept {
+        return epfd_;
     }
 
 
 private:
-    static void
-    on_accept(uv_poll_t* server, int status, int events) noexcept;
-
-
     explicit Acceptor() noexcept {}
 
 
-    uv_loop_t* loop_ { nullptr };
+    void
+    io_loop() noexcept;
+
+
+    void
+    queue_handle(EpollArg* ea) noexcept;
+
+
+    void
+    listener_handle(EpollArg* ea) noexcept;
+
+
+    SOCKET epfd_ { INVALID_SOCKET };
+    SOCKET evfd_ { INVALID_SOCKET };
     std::atomic<int> state_ { STATE_STOPPED };
     std::vector<Reactor*> reactors_;
     std::vector<std::thread> threads_;
-    uv_tcp_t* sessions_[MAX_CONN] { nullptr };
+    Session* sessions_[MAX_CONN] { nullptr };
 }; // class Acceptor;
 
 

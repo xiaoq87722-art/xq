@@ -2,6 +2,7 @@
 #define __XQ_NET_EVENT_HPP__
 
 
+#include "xq/net/net.in.h"
 #include <utility>
 
 
@@ -12,13 +13,23 @@ class Session;
 class Listener;
 
 
-typedef std::pair<int, void*> Event;
+constexpr int EE_TYPE_LISTENER = 1;
+constexpr int EE_TYPE_QUEUE = 2;
+constexpr int EE_TYPE_SESSION = 3;
 
 
-constexpr int EVENT_ON_STOP = 1;
+constexpr int EE_CMD_ACCEPT = 1;
+constexpr int EE_CMD_STOP = 2;
+constexpr int EE_CMD_SEND = 3;
 
 
-constexpr int EVENT_ON_ACCEPT = 2;
+struct EpollArg {
+    int type;
+    int cmd;
+    void* data;
+};
+
+
 struct OnAcceptArg {
     SOCKET fd;
     Listener* l;

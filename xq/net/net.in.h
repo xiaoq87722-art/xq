@@ -2,11 +2,12 @@
 #define __XQ_NET_IN_HPP__
 
 
-#include <uv.h>
 #include "xq/utils/log.hpp"
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include "xq/utils/memory.hpp"
 
 

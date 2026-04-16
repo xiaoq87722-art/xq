@@ -2,7 +2,6 @@
 #define __XQ_NET_REACTOR_HPP__
 
 
-#include "xq/net/write_buf.hpp"
 #include "xq/net/event.hpp"
 #include "xq/net/conf.hpp"
 #include "xq/net/session.hpp"
@@ -21,10 +20,6 @@ class Reactor {
 
 
 public:
-    static void
-    on_write(uv_write_t* req, int status) noexcept;
-
-
     explicit Reactor() noexcept {}
 
 
@@ -46,7 +41,7 @@ public:
 
 
     void
-    post(Event ev);
+    post(EpollArg ev) noexcept;
 
 
     void
@@ -61,12 +56,6 @@ public:
     }
 
 
-    WriteBuf::Pool&
-    write_buf_pool() noexcept {
-        return wbuf_pool_;
-    }
-
-
     void
     remove_session(SOCKET fd) noexcept {
         sessions_.erase(fd);
@@ -74,18 +63,6 @@ public:
 
 
 private:
-    static void
-    event_handle(uv_async_t* handle) noexcept;
-
-
-    static void
-    on_read_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) noexcept;
-
-
-    static void
-    on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) noexcept;
-
-
     void
     on_accept(void* arg) noexcept;
 
@@ -98,12 +75,15 @@ private:
     on_send(void* arg) noexcept;
 
 
-    uv_loop_t* loop_ { nullptr };
-    uv_async_t* async_ { nullptr };
+    void
+    custom_handle(EpollArg* ev) noexcept;
+
+
+    SOCKET epfd_ { INVALID_SOCKET };
+    SOCKET evfd_ { INVALID_SOCKET };
     std::atomic<int> state_ { STATE_STOPPED };
-    xq::utils::MPSC<Event> pending_fds_ { 8, 1024 };
+    xq::utils::MPSC<EpollArg> evque_ { 8, 1024 };
     std::unordered_map<SOCKET, Session*> sessions_;
-    WriteBuf::Pool wbuf_pool_;
 }; // class Reactor;
 
 
