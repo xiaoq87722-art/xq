@@ -96,9 +96,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
             case EA_TYPE_QUEUE:
                 queue_handle(ea);
                 break;
-            
-            default:
-                break;
             }  
         }
 
