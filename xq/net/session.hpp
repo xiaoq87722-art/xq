@@ -5,6 +5,7 @@
 #include "xq/net/net.in.h"
 #include "xq/net/event.hpp"
 #include "xq/utils/mpsc.hpp"
+#include "xq/utils/ring_buf.hpp"
 
 
 namespace xq::net {
@@ -42,6 +43,10 @@ public:
         reactor_ = reactor;
         fd_ = fd;
         ea_ = { EA_TYPE_SESSION, this };
+    
+        if (sbuf_.capacity() < WBUF_MAX) {
+            sbuf_.reset(WBUF_MAX);
+        }
 
         socklen_t addrlen = sizeof(addr_);
         ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
@@ -62,7 +67,7 @@ public:
             reactor_ = nullptr;
         }
 
-        wbuf_.clear();
+        sbuf_.clear();
         
         int n;
         SendBuf sbufs[16];
@@ -120,7 +125,7 @@ private:
     Reactor* reactor_ { nullptr };
     sockaddr_storage addr_ {};
     char rbuf_[RBUF_MAX];
-    std::vector<char> wbuf_;
+    xq::utils::RingBuf sbuf_ { WBUF_MAX };
     xq::utils::MPSC<SendBuf> sque_ { 4, 16 };
 }; // class Session;
 

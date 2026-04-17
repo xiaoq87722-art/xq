@@ -37,57 +37,47 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
         sb.data = (char*)xq::utils::malloc(len);
         ::memcpy(sb.data, data, len);
         sque_.enqueue(std::move(sb));
-
         reactor_->post({ EV_CMD_SEND, this });
         return 0;
     }
 
-    int n;
-    ssize_t nleft = wbuf_.size();
+    // 将跨线程待发数据合并进 sbuf_
+    ssize_t n;
     SendBuf sbufs[16];
-
-    while (n = sque_.try_dequeue_bulk(sbufs, 16), n > 0) {
+    while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
         for (int i = 0; i < n; ++i) {
-            const SendBuf& sbuf = sbufs[i];
-            wbuf_.insert(wbuf_.end(), sbuf.data, sbuf.data + sbuf.len);
-            nleft += sbuf.len;
+            sbuf_.write(sbufs[i].data, sbufs[i].len);
+            xq::utils::free(sbufs[i].data);
         }
     }
 
     if (data && len > 0) {
-        wbuf_.insert(wbuf_.end(), data, data + len);
-        nleft += len;
+        ASSERT(sbuf_.write(data, len) == len, "RingBuf 写入失败，剩余空间不足");
     }
 
-    char *p = wbuf_.data();
-    auto total = nleft;
-    while (1) {
-        n = ::send(fd_, p, nleft, 0);
-        if (n < 0) {
+    ssize_t total = (ssize_t)sbuf_.readable();
+
+    while (sbuf_.readable() > 0) {
+        iovec iov[2];
+        int niov = sbuf_.read_iov(iov);
+        ssize_t sent = ::writev(fd_, iov, niov);
+        if (sent < 0) {
             int err = errno;
             if (err != EAGAIN && err != EWOULDBLOCK) {
                 xERROR("send failed: [{}] {}", err, ::strerror(err));
                 return -err;
             }
-
-            wbuf_.erase(wbuf_.begin(), wbuf_.begin() + (wbuf_.size() - nleft));
             break;
         }
-
-        p += n;
-        nleft -= n;
-        if (nleft == 0) {
-            wbuf_.clear();
-            break;
-        }
+        sbuf_.read_consume(sent);
     }
 
-    if (nleft > 0) {
+    if (sbuf_.readable() > 0) {
         ::epoll_event ev;
         ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
         ev.data.ptr = &ea_;
         ::epoll_ctl(reactor_->epfd(), EPOLL_CTL_MOD, fd_, &ev);
     }
 
-    return total - nleft;
+    return total - (ssize_t)sbuf_.readable();
 }
