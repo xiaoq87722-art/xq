@@ -3,6 +3,7 @@
 
 
 #include "xq/net/net.in.h"
+#include "xq/net/event.hpp"
 
 
 namespace xq::net {
@@ -22,11 +23,18 @@ public:
     {}
 
 
+    EpollArg*
+    arg() noexcept {
+        return &ea_;
+    }
+
+
     void
     init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept {
         listener_ = listener;
         reactor_ = reactor;
         fd_ = fd;
+        ea_ = { EA_TYPE_SESSION, this };
 
         socklen_t addrlen = sizeof(addr_);
         ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
@@ -79,11 +87,16 @@ public:
     }
 
 
+    int
+    recv() noexcept;
+
+
     void
     send(const Reactor* r, char* data, size_t len) noexcept;
 
 
 private:
+    EpollArg ea_ {};
     SOCKET fd_ { INVALID_SOCKET };
     Listener* listener_ { nullptr };
     Reactor* reactor_ { nullptr };

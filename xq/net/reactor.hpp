@@ -76,7 +76,11 @@ private:
 
 
     void
-    custom_handle(EpollArg* ev) noexcept;
+    custom_handle(EpollArg* ea) noexcept;
+
+
+    void
+    session_handle(EpollArg* ea) noexcept;
 
 
     SOCKET epfd_ { INVALID_SOCKET };

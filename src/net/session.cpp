@@ -1,10 +1,37 @@
 #include "xq/net/session.hpp"
+#include "xq/net/event.hpp"
 #include "xq/net/listener.hpp"
 #include "xq/net/reactor.hpp"
 
 
+int
+xq::net::Session::recv() noexcept {
+    char* p = rbuf_;
+    ssize_t nleft = RBUF_MAX;
+
+    while (1) {
+        int n = ::recv(fd_, p, nleft, 0);
+        if (n < 0) {
+            int err = errno;
+            if (err != EAGAIN && err != EWOULDBLOCK) {
+                xERROR("recv failed: [{}] {}", err, ::strerror(err));
+                return -err;
+            }
+
+            return RBUF_MAX - nleft;
+        } else if (n == 0) {
+            return 0;
+        } else {
+            p += n;
+            nleft -= n;
+        }
+    }
+}
+
+
 void
 xq::net::Session::send(const Reactor* r, char* data, size_t len) noexcept {
+    xINFO("{} => {}", to_string(), std::string_view(data, len));
     // if (r != reactor_) {
     //     OnSendArg* arg = (OnSendArg*)xq::utils::malloc(sizeof(OnSendArg) + len);
     //     ::memcpy(arg->data, data, len);

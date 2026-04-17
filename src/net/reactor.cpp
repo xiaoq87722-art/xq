@@ -52,12 +52,12 @@ xq::net::Reactor::run() {
 
         for (int i = 0; i < nfds; ++i) {
             auto& ev = events[i];
-            auto eev = (EpollArg*)ev.data.ptr;
+            auto ea = (EpollArg*)ev.data.ptr;
 
-            if (eev->type == EA_TYPE_QUEUE) {
-                custom_handle(eev);
+            if (ea->type == EA_TYPE_QUEUE) {
+                custom_handle(ea);
             } else {
-                // TODO: 客户端读事件
+                session_handle(ea);
             }
         }
 
@@ -110,8 +110,8 @@ xq::net::Reactor::on_accept(void* params) noexcept {
     s->init(fd, arg->l, this);
 
     ::epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
-    ev.data.ptr = s;
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.ptr = s->arg();
     ::epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev);
 
     add_session(fd, s);
@@ -127,7 +127,7 @@ xq::net::Reactor::on_send(void* arg) noexcept {
 
 
 void
-xq::net::Reactor::custom_handle(EpollArg* ev) noexcept {
+xq::net::Reactor::custom_handle(EpollArg* ea) noexcept {
     int n;
     Event evs[16];
     uint64_t val;
@@ -161,4 +161,27 @@ xq::net::Reactor::custom_handle(EpollArg* ev) noexcept {
             }
         }
     } // while (!evque_.empty());
+}
+
+
+void
+xq::net::Reactor::session_handle(EpollArg* ea) noexcept {
+    auto s = (Session*)ea->data;
+
+    int n = s->recv();
+    if (n > 0) {
+        Context ctx {
+            .reactor = this,
+            .session = s
+        };
+        s->listener()->service()->on_data(&ctx, s->rbuf(), n);
+    } else {
+        if (n < 0) {
+            xERROR("recv failed for session [{}]: {}", s->to_string(), -n);
+        }
+
+        s->listener()->service()->on_disconnected(s);
+        remove_session(s->fd());
+        s->release();
+    }
 }
