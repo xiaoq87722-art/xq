@@ -2,7 +2,6 @@
 #define __XQ_NET_LISTENER_HPP_
 
 
-#include "xq/net/session.hpp"
 #include "xq/net/event.hpp"
 #include "xq/utils/log.hpp"
 

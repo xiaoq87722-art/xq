@@ -2,8 +2,8 @@
 #define __XQ_NET_SESSION_HPP__
 
 
-#include "xq/net/net.in.hpp"
 #include "xq/net/event.hpp"
+#include "xq/net/net.in.hpp"
 #include "xq/utils/mpsc.hpp"
 #include "xq/utils/ring_buf.hpp"
 

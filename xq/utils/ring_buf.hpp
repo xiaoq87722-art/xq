@@ -2,13 +2,17 @@
 #define __XQ_UTILS_RING_BUF_HPP__
 
 
+#include <sys/uio.h>
+
+
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstring>
-#include <algorithm>
-#include <sys/uio.h>
-#include "xq/utils/memory.hpp"
+
+
 #include "xq/utils/log.hpp"
+#include "xq/utils/memory.hpp"
 
 
 namespace xq::utils {

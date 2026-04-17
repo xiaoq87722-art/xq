@@ -2,14 +2,17 @@
 #define __XQ_UTILS_MPSC_HPP__
 
 
+#include <immintrin.h>
+
+
 #include <atomic>
 #include <cstddef>
-#include <new>
-#include <algorithm>
-#include <immintrin.h>
-#include <vector>
 #include <memory>
+#include <new>
 #include <thread>
+#include <vector>
+
+
 #include "xq/utils/memory.hpp"
 
 

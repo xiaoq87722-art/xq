@@ -1,7 +1,6 @@
-#include "xq/net/session.hpp"
-#include "xq/net/event.hpp"
 #include "xq/net/listener.hpp"
 #include "xq/net/reactor.hpp"
+#include "xq/net/session.hpp"
 
 
 int

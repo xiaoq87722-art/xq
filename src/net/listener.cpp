@@ -1,5 +1,5 @@
-#include "xq/net/listener.hpp"
 #include "xq/net/acceptor.hpp"
+#include "xq/net/listener.hpp"
 
 
 static constexpr int BUF_SIZE = 1024 * 256;

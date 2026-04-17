@@ -1,12 +1,12 @@
-#include "xq/net/net.in.hpp"
-#include "xq/net/conf.hpp"
-#include "xq/utils/memory.hpp"
-#include <sys/mman.h>
-#include <sys/socket.h>
-#include <emmintrin.h>
 #include <netdb.h>
+#include <sys/socket.h>
 #include <unistd.h>
+
+
 #include <string>
+
+
+#include "xq/net/net.in.hpp"
 
 
 SOCKET

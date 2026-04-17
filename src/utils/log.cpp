@@ -1,6 +1,8 @@
-#include "xq/utils/log.hpp"
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+
+
+#include "xq/utils/log.hpp"
 
 
 namespace xq {

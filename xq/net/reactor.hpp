@@ -2,11 +2,13 @@
 #define __XQ_NET_REACTOR_HPP__
 
 
+#include <atomic>
+#include <unordered_map>
+
+
 #include "xq/net/event.hpp"
-#include "xq/net/conf.hpp"
 #include "xq/net/session.hpp"
 #include "xq/utils/mpsc.hpp"
-#include <atomic>
 
 
 namespace xq::net {

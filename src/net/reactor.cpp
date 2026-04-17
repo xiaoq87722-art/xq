@@ -1,8 +1,12 @@
-#include "xq/net/reactor.hpp"
-#include "xq/net/session.hpp"
-#include "xq/net/acceptor.hpp"
-#include <csignal>
 #include <pthread.h>
+
+
+#include <csignal>
+
+
+#include "xq/net/acceptor.hpp"
+#include "xq/net/reactor.hpp"
+#include "xq/utils/signal.h"
 
 
 void
@@ -12,11 +16,7 @@ xq::net::Reactor::run() {
         return;
     }
 
-    ::sigset_t mask;
-    ::sigemptyset(&mask);
-    ::sigaddset(&mask, SIGINT);
-    ::sigaddset(&mask, SIGTERM);
-    ::pthread_sigmask(SIG_BLOCK, &mask, nullptr);
+    xq::utils::block_signal({ SIGINT, SIGTERM });
 
     epfd_ = ::epoll_create1(0);
     ASSERT(epfd_ != -1, "epoll_create1 failed: [{}] {}", errno, ::strerror(errno));
@@ -57,14 +57,14 @@ xq::net::Reactor::run() {
             if (ea->type == EA_TYPE_QUEUE) {
                 evque_handle(ea);
             } else {
-                if (ev.events & EPOLLIN) {
+                if (ev.events & (EPOLLERR | EPOLLHUP)) {
+                    session_recv_handle(ea);
+                } else if (ev.events & EPOLLIN) {
                     session_recv_handle(ea);
                 } else if (ev.events & EPOLLOUT) {
                     session_send_handle(ea);
-                } else if (ev.events & (EPOLLERR | EPOLLHUP)) {
-                    session_recv_handle(ea);
                 } else {
-                    xERROR("unexpected epoll event: {}", ev.events);
+                    xERROR("unexpected epoll event: {}", (uint32_t)ev.events);
                 }
             }
         }
@@ -113,7 +113,7 @@ xq::net::Reactor::on_accept(void* params) noexcept {
 
     Session* s = Acceptor::instance()->sessions()[fd];
     if (!s) {
-        Acceptor::instance()->sessions()[fd] = s = (Session*)xq::utils::malloc(sizeof(Session));
+        Acceptor::instance()->sessions()[fd] = s = (Session*)xq::utils::malloc(sizeof(Session), true);
     }
     s->init(fd, arg->l, this);
 
@@ -199,5 +199,8 @@ xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
 void
 xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
-    s->send(this, nullptr, 0);
+    int res;
+    if (res = s->send(this, nullptr, 0), res < 0) {
+        xERROR("send failed for session [{}]: {}", s->to_string(), -res);
+    }
 }

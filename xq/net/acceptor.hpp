@@ -2,12 +2,12 @@
 #define __XQ_NET_ACCEPTOR_HPP__
 
 
-#include <vector>
 #include <thread>
+#include <vector>
+
+
 #include "xq/net/listener.hpp"
 #include "xq/net/reactor.hpp"
-#include "xq/utils/memory.hpp"
-#include "xq/net/conf.hpp"
 
 
 namespace xq::net {
