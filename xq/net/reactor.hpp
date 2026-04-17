@@ -31,6 +31,12 @@ public:
         return state_.load(std::memory_order_relaxed) == STATE_RUNNING;
     }
 
+
+    SOCKET
+    epfd() const noexcept {
+        return epfd_;
+    }
+
     
     void
     run();
@@ -80,7 +86,11 @@ private:
 
 
     void
-    session_handle(EpollArg* ea) noexcept;
+    session_recv_handle(EpollArg* ea) noexcept;
+
+
+    void
+    session_send_handle(EpollArg* ea) noexcept;
 
 
     SOCKET epfd_ { INVALID_SOCKET };

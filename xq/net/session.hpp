@@ -4,9 +4,16 @@
 
 #include "xq/net/net.in.h"
 #include "xq/net/event.hpp"
+#include "xq/utils/mpsc.hpp"
 
 
 namespace xq::net {
+
+
+struct SendBuf {
+    int len;
+    char* data;
+};
 
 
 class Reactor;
@@ -53,6 +60,17 @@ public:
 
         if (reactor_) {
             reactor_ = nullptr;
+        }
+
+        wbuf_.clear();
+        
+        int n;
+        SendBuf sbufs[16];
+        while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
+            for (int i = 0; i < n; ++i) {
+                const SendBuf& sbuf = sbufs[i];
+                xq::utils::free(sbuf.data);
+            }
         }
     }
 
@@ -102,6 +120,8 @@ private:
     Reactor* reactor_ { nullptr };
     sockaddr_storage addr_ {};
     char rbuf_[RBUF_MAX];
+    std::vector<char> wbuf_;
+    xq::utils::MPSC<SendBuf> sque_ { 4, 16 };
 }; // class Session;
 
     

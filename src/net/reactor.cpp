@@ -57,7 +57,11 @@ xq::net::Reactor::run() {
             if (ea->type == EA_TYPE_QUEUE) {
                 custom_handle(ea);
             } else {
-                session_handle(ea);
+                if (ev.events & EPOLLIN) {
+                    session_recv_handle(ea);
+                } else if (ev.events & EPOLLOUT) {
+                    session_send_handle(ea);
+                }
             }
         }
 
@@ -165,7 +169,7 @@ xq::net::Reactor::custom_handle(EpollArg* ea) noexcept {
 
 
 void
-xq::net::Reactor::session_handle(EpollArg* ea) noexcept {
+xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
 
     int n = s->recv();
@@ -184,4 +188,11 @@ xq::net::Reactor::session_handle(EpollArg* ea) noexcept {
     s->listener()->service()->on_disconnected(s);
     remove_session(s->fd());
     s->release();
+}
+
+
+void
+xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
+    auto s = (Session*)ea->data;
+    s->send(this, nullptr, 0);
 }

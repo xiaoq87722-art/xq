@@ -31,23 +31,63 @@ xq::net::Session::recv() noexcept {
 
 int
 xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept {
-    xINFO("{} => {}", to_string(), std::string_view(data, len));
-    // if (r != reactor_) {
-    //     OnSendArg* arg = (OnSendArg*)xq::utils::malloc(sizeof(OnSendArg) + len);
-    //     ::memcpy(arg->data, data, len);
-    //     arg->s = this;
-    //     arg->len = len;
+    if (r != reactor_) {
+        SendBuf sb;
+        sb.len = len;
+        sb.data = (char*)xq::utils::malloc(len);
+        ::memcpy(sb.data, data, len);
+        sque_.enqueue(std::move(sb));
 
-    //     reactor_->post({ EVENT_ON_SEND, arg });
-    //     return;
-    // }
+        reactor_->post({ EV_CMD_SEND, this });
+        return 0;
+    }
 
-    // auto wb = reactor_->write_buf_pool().get();
-    // ::memcpy(wb->data, data, len);
-    // wb->reactor = reactor_;
+    int n;
+    ssize_t nleft = wbuf_.size();
+    SendBuf sbufs[16];
 
-    // wb->req.data = wb;
-    // uv_buf_t wrbuf = uv_buf_init(wb->data, len);
-    // ::uv_write(&wb->req, (uv_stream_t*)uv_, &wrbuf, 1, on_write);
-    return 0;
+    while (n = sque_.try_dequeue_bulk(sbufs, 16), n > 0) {
+        for (int i = 0; i < n; ++i) {
+            const SendBuf& sbuf = sbufs[i];
+            wbuf_.insert(wbuf_.end(), sbuf.data, sbuf.data + sbuf.len);
+            nleft += sbuf.len;
+        }
+    }
+
+    if (data && len > 0) {
+        wbuf_.insert(wbuf_.end(), data, data + len);
+        nleft += len;
+    }
+
+    char *p = wbuf_.data();
+    auto total = nleft;
+    while (1) {
+        n = ::send(fd_, p, nleft, 0);
+        if (n < 0) {
+            int err = errno;
+            if (err != EAGAIN && err != EWOULDBLOCK) {
+                xERROR("send failed: [{}] {}", err, ::strerror(err));
+                return -err;
+            }
+
+            wbuf_.erase(wbuf_.begin(), wbuf_.begin() + (wbuf_.size() - nleft));
+            break;
+        }
+
+        p += n;
+        nleft -= n;
+        if (nleft == 0) {
+            wbuf_.clear();
+            break;
+        }
+    }
+
+    if (nleft > 0) {
+        ::epoll_event ev;
+        ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
+        ev.data.ptr = &ea_;
+        ::epoll_ctl(reactor_->epfd(), EPOLL_CTL_MOD, fd_, &ev);
+    }
+
+    return total - nleft;
 }

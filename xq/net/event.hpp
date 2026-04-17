@@ -21,7 +21,7 @@ struct Context {
     Reactor* reactor;
     Session* session;
 
-    inline int
+    int
     send(const char* data, size_t len) noexcept;
 };
 
@@ -61,14 +61,6 @@ struct Event {
 struct OnAcceptArg {
     SOCKET fd;
     Listener* l;
-};
-
-
-constexpr int EVENT_ON_SEND = 3;
-struct OnSendArg {
-    Session* s;
-    size_t len;
-    char data[];
 };
 
 
