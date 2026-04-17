@@ -3,6 +3,34 @@
 #include "xq/net/session.hpp"
 
 
+void
+xq::net::Session::release() noexcept {
+    if (fd_ != INVALID_SOCKET) {
+        ::close(fd_);
+        fd_ = INVALID_SOCKET;
+    }
+
+    if (listener_) {
+        listener_ = nullptr;
+    }
+
+    if (reactor_) {
+        reactor_ = nullptr;
+    }
+
+    sbuf_.clear();
+        
+    int n;
+    SendBuf sbufs[16];
+    while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
+        for (int i = 0; i < n; ++i) {
+            const SendBuf& sbuf = sbufs[i];
+            xq::utils::free(sbuf.data);
+        }
+    }
+}
+
+
 int
 xq::net::Session::recv() noexcept {
     char* p = rbuf_;
