@@ -82,7 +82,7 @@ private:
 
 
     void
-    custom_handle(EpollArg* ea) noexcept;
+    evque_handle(EpollArg* ea) noexcept;
 
 
     void

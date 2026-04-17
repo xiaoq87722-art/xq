@@ -55,7 +55,7 @@ xq::net::Reactor::run() {
             auto ea = (EpollArg*)ev.data.ptr;
 
             if (ea->type == EA_TYPE_QUEUE) {
-                custom_handle(ea);
+                evque_handle(ea);
             } else {
                 if (ev.events & EPOLLIN) {
                     session_recv_handle(ea);
@@ -126,12 +126,13 @@ xq::net::Reactor::on_accept(void* params) noexcept {
 
 void
 xq::net::Reactor::on_send(void* arg) noexcept {
-    // TODO
+    auto s = (Session*)arg;
+    s->send(this, nullptr, 0);
 }
 
 
 void
-xq::net::Reactor::custom_handle(EpollArg* ea) noexcept {
+xq::net::Reactor::evque_handle(EpollArg* ea) noexcept {
     int n;
     Event evs[16];
     uint64_t val;
