@@ -29,8 +29,8 @@ xq::net::Session::recv() noexcept {
 }
 
 
-void
-xq::net::Session::send(const Reactor* r, char* data, size_t len) noexcept {
+int
+xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept {
     xINFO("{} => {}", to_string(), std::string_view(data, len));
     // if (r != reactor_) {
     //     OnSendArg* arg = (OnSendArg*)xq::utils::malloc(sizeof(OnSendArg) + len);
@@ -49,4 +49,5 @@ xq::net::Session::send(const Reactor* r, char* data, size_t len) noexcept {
     // wb->req.data = wb;
     // uv_buf_t wrbuf = uv_buf_init(wb->data, len);
     // ::uv_write(&wb->req, (uv_stream_t*)uv_, &wrbuf, 1, on_write);
+    return 0;
 }

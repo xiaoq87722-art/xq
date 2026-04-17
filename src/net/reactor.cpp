@@ -170,18 +170,18 @@ xq::net::Reactor::session_handle(EpollArg* ea) noexcept {
 
     int n = s->recv();
     if (n > 0) {
-        Context ctx {
-            .reactor = this,
-            .session = s
-        };
-        s->listener()->service()->on_data(&ctx, s->rbuf(), n);
-    } else {
-        if (n < 0) {
-            xERROR("recv failed for session [{}]: {}", s->to_string(), -n);
-        }
+        Context ctx(this, s);
 
-        s->listener()->service()->on_disconnected(s);
-        remove_session(s->fd());
-        s->release();
+        if (!s->listener()->service()->on_data(&ctx, s->rbuf(), n)) {
+            return;
+        }
     }
+
+    if (n < 0) {
+        xERROR("recv failed for session [{}]: {}", s->to_string(), -n);
+    }
+
+    s->listener()->service()->on_disconnected(s);
+    remove_session(s->fd());
+    s->release();
 }

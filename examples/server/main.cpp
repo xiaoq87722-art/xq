@@ -15,9 +15,10 @@ public:
     }
 
 
-    virtual void
+    virtual int
     on_connected(xq::net::Session* s) override {
         xINFO("{} connected", s->to_string());
+        return 0;
     }
 
 
@@ -27,9 +28,10 @@ public:
     }
 
 
-    virtual void
+    virtual int
     on_data(xq::net::Context* ctx, const char* data, size_t len) override {
         ctx->send(data, len);
+        return 0;
     }
 };
 

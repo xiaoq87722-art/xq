@@ -91,8 +91,8 @@ public:
     recv() noexcept;
 
 
-    void
-    send(const Reactor* r, char* data, size_t len) noexcept;
+    int
+    send(const Reactor* r, const char* data, size_t len) noexcept;
 
 
 private:

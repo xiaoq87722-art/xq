@@ -9,8 +9,31 @@
 namespace xq::net {
 
 
+class Reactor;
 class Session;
 class Listener;
+
+
+struct Context {
+    Context(Reactor* r, Session* s) : reactor(r), session(s)
+    {}
+
+    Reactor* reactor;
+    Session* session;
+
+    inline int
+    send(const char* data, size_t len) noexcept;
+};
+
+
+class IService {
+public:
+    virtual void on_start(Listener* l) = 0;
+    virtual void on_stop(Listener* l) = 0;
+    virtual int on_connected(Session* s) = 0;
+    virtual void on_disconnected(Session* s) = 0;
+    virtual int on_data(Context* ctx, const char* data, size_t len) = 0;
+}; // class IService;
 
 
 constexpr int EA_TYPE_LISTENER = 1;
