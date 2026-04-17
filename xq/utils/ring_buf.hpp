@@ -54,19 +54,27 @@ public:
 
     void
     reset(size_t capacity) noexcept {
-        xq::utils::free(buf_);
+        if (buf_) {
+            xq::utils::free(buf_);
+            buf_ = nullptr;
+        }
+
         buf_ = nullptr;
         cap_ = 0;
         mask_ = 0;
         head_.store(0, std::memory_order_relaxed);
         tail_.store(0, std::memory_order_relaxed);
 
-        if (capacity < 1) capacity = 4096;
+        if (capacity < 1) {
+            capacity = 4096;
+        }
+
         size_t cap = 1;
         while (cap < capacity) {
             ASSERT(cap <= (SIZE_MAX >> 1), "RingBuf capacity overflow: {}", capacity);
             cap <<= 1;
         }
+
         cap_ = cap;
         mask_ = cap - 1;
         buf_ = (char*)xq::utils::malloc(cap_);
@@ -95,12 +103,6 @@ public:
     size_t
     write(const char* src, size_t len) noexcept {
         size_t avail = writable();
-        xINFO("RingBuf write, requested: {}, available: {}", len, avail);
-        xINFO("RingBuf state, head: {}, tail: {}, readable: {}, writable: {}", 
-            head_.load(std::memory_order_acquire), tail_.load(std::memory_order_acquire), 
-            readable(), writable());
-
-        xINFO("RingBuf capacity: {}", cap_);
         size_t n = std::min(len, avail);
         if (n == 0) {
             return 0;

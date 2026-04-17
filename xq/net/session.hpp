@@ -2,7 +2,7 @@
 #define __XQ_NET_SESSION_HPP__
 
 
-#include "xq/net/net.in.h"
+#include "xq/net/net.in.hpp"
 #include "xq/net/event.hpp"
 #include "xq/utils/mpsc.hpp"
 #include "xq/utils/ring_buf.hpp"
@@ -56,6 +56,7 @@ public:
     void
     release() noexcept {
         if (fd_ != INVALID_SOCKET) {
+            ::close(fd_);
             fd_ = INVALID_SOCKET;
         }
 

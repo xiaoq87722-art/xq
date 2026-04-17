@@ -61,6 +61,10 @@ xq::net::Reactor::run() {
                     session_recv_handle(ea);
                 } else if (ev.events & EPOLLOUT) {
                     session_send_handle(ea);
+                } else if (ev.events & (EPOLLERR | EPOLLHUP)) {
+                    session_recv_handle(ea);
+                } else {
+                    xERROR("unexpected epoll event: {}", ev.events);
                 }
             }
         }

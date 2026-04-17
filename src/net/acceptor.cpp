@@ -1,7 +1,7 @@
 #include "xq/net/acceptor.hpp"
 #include "xq/net/reactor.hpp"
 #include "xq/utils/signal.h"
-#include "xq/net/net.in.h"
+#include "xq/net/net.in.hpp"
 #include <immintrin.h>
 #include <cstring>
 #include <csignal>
