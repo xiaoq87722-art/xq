@@ -1,10 +1,10 @@
 .PHONY: clean all run
 
 CXX = g++
-CXXFLAGS = -std=c++20 -O3 -DNDEBUG -march=native -flto=auto
+CXXFLAGS = -std=c++20 -O2 -g -fno-omit-frame-pointer -DNDEBUG -march=native
 INCLUDE = -I../../ -I/usr/local/include/mimalloc-3.2
 LDFLAGS = -L/usr/local/lib -L/usr/local/lib/mimalloc-3.2
-LIBS = -lspdlog -lmimalloc
+LIBS = -lspdlog -lmimalloc -lprofiler
 
 TARGET = server
 

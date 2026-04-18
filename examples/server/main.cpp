@@ -1,4 +1,5 @@
 #include "xq/xq.h"
+#include <gperftools/profiler.h>
 
 
 class EchoService : public xq::net::IService {
@@ -38,10 +39,13 @@ public:
 
 int
 main(int, char**) {
+    xq::utils::disable_log();
+    ProfilerStart("./server.prof");
     EchoService echo;
     auto l1 = xq::net::Listener(&echo, "0.0.0.0", 8888);
     auto l2 = xq::net::Listener(&echo, "0.0.0.0", 9999);
 
     xq::net::Acceptor::instance()->run({ &l1, &l2 });
+    ProfilerStop();
     return 0;
 }

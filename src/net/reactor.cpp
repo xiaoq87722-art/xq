@@ -26,7 +26,8 @@ xq::net::Reactor::run() {
     ASSERT(evfd_ != -1, "eventfd failed: [{}] {}", errno, ::strerror(errno));
 
     static constexpr int MAX_EVENT = 4096;
-    ::epoll_event ev{}, events[MAX_EVENT];
+    ::epoll_event ev{};
+    ::epoll_event* events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) * MAX_EVENT, true);
     EpollArg ea;
 
     ea.type = EA_TYPE_QUEUE;
@@ -89,6 +90,7 @@ xq::net::Reactor::run() {
     }
 
     sessions_.clear();
+    xq::utils::free(events);
     state_.store(STATE_STOPPED);
 }
 

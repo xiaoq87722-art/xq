@@ -8,8 +8,20 @@
 namespace xq::utils {
 
 
-void 
+void
 init_log(const std::string& log_dir = "./logs/");
+
+
+inline void
+disable_log() noexcept {
+    spdlog::set_level(spdlog::level::off);
+}
+
+
+inline void
+set_log_level(spdlog::level::level_enum level) noexcept {
+    spdlog::set_level(level);
+}
 
 
 } // namespace xq::utils
