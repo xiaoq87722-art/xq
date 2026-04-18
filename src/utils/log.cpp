@@ -5,8 +5,7 @@
 #include "xq/utils/log.hpp"
 
 
-namespace xq {
-namespace utils {
+namespace xq::utils {
 
 
 // 级别过滤 wrapper
@@ -38,8 +37,9 @@ public:
     }
 };
 
-} // namespace utils
-} // namespace xq
+
+} // namespace xq::utils
+
 
 void
 xq::utils::init_log(const std::string& log_dir) {
