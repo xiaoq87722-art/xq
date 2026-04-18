@@ -22,6 +22,7 @@ class Listener;
 
 
 class Session {
+    friend class Reactor;
 public:
     Session()
     {}
@@ -38,19 +39,7 @@ public:
 
 
     void
-    init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept {
-        listener_ = listener;
-        reactor_ = reactor;
-        fd_ = fd;
-        ea_ = { EA_TYPE_SESSION, this };
-    
-        if (sbuf_.capacity() < WBUF_MAX) {
-            sbuf_.reset(WBUF_MAX);
-        }
-
-        socklen_t addrlen = sizeof(addr_);
-        ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
-    }
+    init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept;
 
 
     void
@@ -103,6 +92,8 @@ private:
     sockaddr_storage addr_ {};
     char rbuf_[RBUF_MAX];
     xq::utils::RingBuf sbuf_ { WBUF_MAX };
+    std::atomic<bool> sending_ { false };
+    bool can_send_ { true };
     xq::utils::MPSC<SendBuf> sque_ { 4, 16 };
 }; // class Session;
 

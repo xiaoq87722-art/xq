@@ -200,6 +200,7 @@ void
 xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
     int res;
+    s->can_send_ = true;
     if (res = s->send(this, nullptr, 0), res < 0) {
         xERROR("send failed for session [{}]: {}", s->to_string(), -res);
     }

@@ -4,6 +4,36 @@
 
 
 void
+xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept {
+    listener_ = listener;
+    reactor_ = reactor;
+    fd_ = fd;
+    ea_ = { EA_TYPE_SESSION, this };
+    
+    if (sbuf_.capacity() < WBUF_MAX) {
+        sbuf_.reset(WBUF_MAX);
+    }
+
+    sending_.store(false, std::memory_order_relaxed);
+    can_send_ = true;
+
+    sbuf_.clear();
+        
+    int n;
+    SendBuf sbufs[16];
+    while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
+        for (int i = 0; i < n; ++i) {
+            const SendBuf& sbuf = sbufs[i];
+            xq::utils::free(sbuf.data);
+        }
+    }
+
+    socklen_t addrlen = sizeof(addr_);
+    ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
+}
+
+
+void
 xq::net::Session::release() noexcept {
     if (fd_ != INVALID_SOCKET) {
         ::close(fd_);
@@ -19,7 +49,7 @@ xq::net::Session::release() noexcept {
     }
 
     sbuf_.clear();
-        
+
     int n;
     SendBuf sbufs[16];
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
@@ -64,11 +94,28 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
         sb.data = (char*)xq::utils::malloc(len);
         ::memcpy(sb.data, data, len);
         sque_.enqueue(std::move(sb));
-        reactor_->post({ EV_CMD_SEND, this });
+
+        bool expected = false;
+        if (sending_.compare_exchange_strong(expected, true)) {
+            reactor_->post({ EV_CMD_SEND, this });
+        }
+
+        return 0;
+    }
+
+    if (!can_send_ && data && len > 0) {
+        SendBuf sb;
+        sb.len = len;
+        sb.data = (char*)xq::utils::malloc(len);
+        ::memcpy(sb.data, data, len);
+        sque_.enqueue(std::move(sb));
+
         return 0;
     }
 
     // 将跨线程待发数据合并进 sbuf_
+    sending_.store(false, std::memory_order_release);
+
     ssize_t n;
     SendBuf sbufs[16];
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
@@ -94,6 +141,7 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
                 xERROR("send failed: [{}] {}", err, ::strerror(err));
                 return -err;
             }
+            can_send_ = false;
             break;
         }
         sbuf_.read_consume(sent);
