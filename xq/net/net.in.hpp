@@ -17,8 +17,8 @@ typedef int SOCKET;
 #define INVALID_SOCKET (-1)
 
 
-constexpr int RBUF_MAX = 1024 * 512;
-constexpr int WBUF_MAX = 1024 * 512;
+constexpr int RBUF_MAX = 1024 * 64;
+constexpr int WBUF_MAX = 1024 * 128;
 
 
 constexpr int STATE_STOPPED = 0;  // 停止状态
