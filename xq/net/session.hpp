@@ -94,7 +94,7 @@ private:
     xq::utils::RingBuf sbuf_ { WBUF_MAX };
     std::atomic<bool> sending_ { false };
     bool can_send_ { true };
-    xq::utils::MPSC<SendBuf> sque_ { 4, 16 };
+    xq::utils::MPSC<SendBuf> sque_ { 4, 32 };
 }; // class Session;
 
     

@@ -57,14 +57,13 @@ xq::net::Reactor::run() {
             if (ea->type == EA_TYPE_QUEUE) {
                 evque_handle(ea);
             } else {
-                if (ev.events & (EPOLLERR | EPOLLHUP)) {
+                if ((ev.events & (EPOLLERR | EPOLLHUP)) || ev.events & EPOLLIN) {
                     session_recv_handle(ea);
-                } else if (ev.events & EPOLLIN) {
-                    session_recv_handle(ea);
-                } else if (ev.events & EPOLLOUT) {
+                }
+
+                auto s = (Session*)ea->data;
+                if ((ev.events & EPOLLOUT) && s->fd() != INVALID_SOCKET) {
                     session_send_handle(ea);
-                } else {
-                    xERROR("unexpected epoll event: {}", (uint32_t)ev.events);
                 }
             }
         }
@@ -85,7 +84,6 @@ xq::net::Reactor::run() {
     }
 
     sessions_.clear();
-
     state_.store(STATE_STOPPED);
 }
 
@@ -157,6 +155,7 @@ xq::net::Reactor::evque_handle(EpollArg* ea) noexcept {
         for (int i = 0; i < n; ++i) {
             switch (evs[i].cmd) {
             case EV_CMD_STOP:
+                ::epoll_ctl(epfd_, EPOLL_CTL_DEL, evfd_, nullptr);
                 state_.store(STATE_STOPPING);
                 break;
 

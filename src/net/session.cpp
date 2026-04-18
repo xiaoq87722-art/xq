@@ -74,8 +74,7 @@ xq::net::Session::recv() noexcept {
                 xERROR("recv failed: [{}] {}", err, ::strerror(err));
                 return -err;
             }
-
-            return RBUF_MAX - nleft;
+            break;
         } else if (n == 0) {
             return 0;
         } else {
@@ -83,6 +82,8 @@ xq::net::Session::recv() noexcept {
             nleft -= n;
         }
     }
+
+    return RBUF_MAX - nleft;
 }
 
 
@@ -93,7 +94,7 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
         sb.len = len;
         sb.data = (char*)xq::utils::malloc(len);
         ::memcpy(sb.data, data, len);
-        sque_.enqueue(std::move(sb));
+        ASSERT(sque_.enqueue(std::move(sb)), "sque_ 队列已满");
 
         bool expected = false;
         if (sending_.compare_exchange_strong(expected, true)) {
@@ -108,7 +109,7 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
         sb.len = len;
         sb.data = (char*)xq::utils::malloc(len);
         ::memcpy(sb.data, data, len);
-        sque_.enqueue(std::move(sb));
+        ASSERT(sque_.enqueue(std::move(sb)), "sque_ 队列已满");
 
         return 0;
     }

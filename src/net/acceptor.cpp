@@ -189,6 +189,12 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
             break;
         }
 
+        if (cfd >= MAX_CONN) {
+            xERROR("too many connections, rejecting [{}]", cfd);
+            ::close(cfd);
+            continue;
+        }
+
         OnAcceptArg* arg = (OnAcceptArg*)xq::utils::malloc(sizeof(OnAcceptArg));
         arg->fd = cfd;
         arg->l = l;
