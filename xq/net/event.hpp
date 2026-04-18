@@ -17,8 +17,10 @@ struct Context {
     Context(Reactor* r, Session* s) : reactor(r), session(s)
     {}
 
+
     Reactor* reactor;
     Session* session;
+
 
     int
     send(const char* data, size_t len) noexcept;
@@ -27,11 +29,24 @@ struct Context {
 
 class IService {
 public:
-    virtual void on_start(Listener* l) = 0;
-    virtual void on_stop(Listener* l) = 0;
-    virtual int on_connected(Session* s) = 0;
-    virtual void on_disconnected(Session* s) = 0;
-    virtual int on_data(Context* ctx, const char* data, size_t len) = 0;
+    virtual void
+    on_start(Listener* l) = 0;
+
+
+    virtual void
+    on_stop(Listener* l) = 0;
+
+
+    virtual int
+    on_connected(Session* s) = 0;
+
+
+    virtual void
+    on_disconnected(Session* s) = 0;
+
+
+    virtual int
+    on_data(Context* ctx, const char* data, size_t len) = 0;
 }; // class IService;
 
 

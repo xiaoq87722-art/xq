@@ -24,19 +24,22 @@ class Listener;
 
 class Session {
     friend class Reactor;
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+    Session(Session&&) = delete;
+    Session& operator=(Session&&) = delete;
+
+
 public:
-    Session()
-    {}
-
-
-    ~Session()
-    {}
-
-
-    EpollArg*
-    arg() noexcept {
-        return &ea_;
+    static Session*
+    create() {
+        auto p = xq::utils::malloc(sizeof(Session));
+        return new(p) Session;
     }
+
+
+    ~Session() noexcept
+    {}
 
 
     void
@@ -45,6 +48,12 @@ public:
 
     void
     release() noexcept;
+
+
+    SOCKET
+    fd() noexcept {
+        return fd_;
+    }
 
 
     Listener*
@@ -59,21 +68,21 @@ public:
     }
 
 
-    SOCKET
-    fd() noexcept {
-        return fd_;
-    }
-
-
-    char*
-    rbuf() noexcept {
-        return rbuf_;
+    EpollArg*
+    arg() noexcept {
+        return &ea_;
     }
 
 
     std::string
     to_string() const noexcept {
         return std::format("[{}] {}", fd_, sockaddr_to_string((sockaddr*)&addr_));
+    }
+
+
+    char*
+    rbuf() noexcept {
+        return rbuf_;
     }
 
 
@@ -90,23 +99,29 @@ public:
 
 
 private:
+    Session() noexcept
+    {}
+
+
     bool
     is_timeout(time_t now) const noexcept {
         return now - last_active_ >= Conf::instance()->timeout();
     }
 
 
-    EpollArg ea_ {};
     SOCKET fd_ { INVALID_SOCKET };
     time_t last_active_ { 0 };
     Listener* listener_ { nullptr };
     Reactor* reactor_ { nullptr };
+    EpollArg ea_ {};
     sockaddr_storage addr_ {};
-    char rbuf_[RBUF_MAX];
-    xq::utils::RingBuf sbuf_ { WBUF_MAX };
-    std::atomic<bool> sending_ { false };
+
     bool can_send_ { true };
+    std::atomic<bool> sending_ { false };
+    xq::utils::RingBuf sbuf_ { WBUF_MAX };
+    
     xq::utils::MPSC<SendBuf> sque_ { 4, 32 };
+    char rbuf_[RBUF_MAX] { 0 };
 }; // class Session;
 
     

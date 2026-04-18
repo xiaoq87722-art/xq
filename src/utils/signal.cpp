@@ -7,7 +7,7 @@ xq::utils::regist_signal(__sighandler_t handle, const std::initializer_list<int>
     struct sigaction sa{};
 
     sa.sa_handler = handle;
-    ::sigemptyset(&sa.sa_mask);
+    ASSERT(!::sigemptyset(&sa.sa_mask), "[{}] {}", errno, ::strerror(errno));
     sa.sa_flags = 0;
 
     for (auto sig: siglist) {
@@ -19,10 +19,10 @@ xq::utils::regist_signal(__sighandler_t handle, const std::initializer_list<int>
 void
 xq::utils::block_signal(const std::initializer_list<int>& siglist) {
     sigset_t mask;
-    ::sigemptyset(&mask);
+    ASSERT(!::sigemptyset(&mask), "[{}] {}", errno, ::strerror(errno));
 
     for (auto sig: siglist) {
-        ::sigaddset(&mask, sig);
+        ASSERT(!::sigaddset(&mask, sig), "[{}] {}", errno, ::strerror(errno));
     }
 
     ASSERT(!::pthread_sigmask(SIG_BLOCK, &mask, nullptr), "[{}] {}", errno, ::strerror(errno));

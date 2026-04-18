@@ -157,7 +157,7 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
         ::epoll_event ev;
         ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
         ev.data.ptr = &ea_;
-        ::epoll_ctl(reactor_->epfd(), EPOLL_CTL_MOD, fd_, &ev);
+        ASSERT(!::epoll_ctl(reactor_->epfd(), EPOLL_CTL_MOD, fd_, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
     }
 
     return total - (ssize_t)sbuf_.readable();

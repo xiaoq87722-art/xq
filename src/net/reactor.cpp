@@ -11,7 +11,7 @@
 
 
 void
-xq::net::Reactor::run() {
+xq::net::Reactor::run() noexcept {
     int stopped_state = STATE_STOPPED;
     if (!state_.compare_exchange_strong(stopped_state, STATE_STARTING)) {
         return;
@@ -34,12 +34,12 @@ xq::net::Reactor::run() {
     ea.data = this;
     ev.data.ptr = &ea;
     ev.events = EPOLLIN | EPOLLET;
-    ::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev);
+    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
 
     int err = 0;
-    state_.store(STATE_RUNNING);
-
     time_t last_check_time = 0;
+
+    state_.store(STATE_RUNNING);
 
     while (1) {
         int nfds = ::epoll_wait(epfd_, events, MAX_EVENT, 5000);
@@ -49,7 +49,6 @@ xq::net::Reactor::run() {
             if (err == EINTR) {
                 continue;
             }
-
             xERROR("epoll_wait failed: [{}] {}", err, ::strerror(err));
             break;
         }
@@ -79,7 +78,7 @@ xq::net::Reactor::run() {
         }
 
         if (last_check_time + 5 <= tnow_) {
-            check_timeout();
+            timer_handle();
             last_check_time = tnow_;
         }
     }
@@ -101,8 +100,8 @@ xq::net::Reactor::run() {
 
 
 void
-xq::net::Reactor::stop() {
-    static constexpr uint64_t stop = 1;
+xq::net::Reactor::stop() noexcept {
+    constexpr uint64_t stop = 1;
     ASSERT(evque_.enqueue(std::move(Event{ EV_CMD_STOP, nullptr })), "evque_ 队列已满");
     ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
 }
@@ -110,38 +109,9 @@ xq::net::Reactor::stop() {
 
 void
 xq::net::Reactor::post(Event ev) noexcept {
-    static constexpr uint64_t event = 1;
+    constexpr uint64_t event = 1;
     ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
     ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
-}
-
-
-void
-xq::net::Reactor::on_accept(void* params) noexcept {
-    auto arg = (OnAcceptArg*)params;
-    auto fd = arg->fd;
-
-    Session* s = Acceptor::instance()->sessions()[fd];
-    if (!s) {
-        Acceptor::instance()->sessions()[fd] = s = (Session*)xq::utils::malloc(sizeof(Session), true);
-    }
-    s->init(fd, arg->l, this);
-
-    ::epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET;
-    ev.data.ptr = s->arg();
-    ::epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev);
-
-    add_session(fd, s);
-    arg->l->service()->on_connected(s);
-    xq::utils::free(params);
-}
-
-
-void
-xq::net::Reactor::on_send(void* arg) noexcept {
-    auto s = (Session*)arg;
-    s->send(this, nullptr, 0);
 }
 
 
@@ -168,7 +138,7 @@ xq::net::Reactor::evque_handle(EpollArg* ea) noexcept {
         for (int i = 0; i < n; ++i) {
             switch (evs[i].cmd) {
             case EV_CMD_STOP:
-                ::epoll_ctl(epfd_, EPOLL_CTL_DEL, evfd_, nullptr);
+                ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, evfd_, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
                 state_.store(STATE_STOPPING);
                 break;
 
@@ -222,7 +192,52 @@ xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
 
 
 void
-xq::net::Reactor::check_timeout() noexcept {
+xq::net::Reactor::on_accept(void* params) noexcept {
+    auto arg = (OnAcceptArg*)params;
+    auto fd = arg->fd;
+
+    Session* s = Acceptor::instance()->sessions()[fd];
+    if (!s) {
+        Acceptor::instance()->sessions()[fd] = s = (Session*)xq::utils::malloc(sizeof(Session), true);
+    }
+    s->init(fd, arg->l, this);
+
+    ::epoll_event ev;
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.ptr = s->arg();
+    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+
+    add_session(fd, s);
+    arg->l->service()->on_connected(s);
+    xq::utils::free(params);
+}
+
+
+void
+xq::net::Reactor::on_send(void* arg) noexcept {
+    auto s = (Session*)arg;
+    s->send(this, nullptr, 0);
+}
+
+
+void
+xq::net::Reactor::on_broadcast(void* params) noexcept {
+    auto arg = (OnBroadcastArg*)params;
+
+    for (auto& [fd, s] : sessions_) {
+        if (s->reactor() != this) {
+            continue;
+        }
+
+        s->send(this, arg->data, arg->len);
+    }
+
+    xq::utils::free(params);
+}
+
+
+void
+xq::net::Reactor::timer_handle() noexcept {
     for (auto itr = sessions_.begin(); itr != sessions_.end();) {
         auto s = itr->second;
         if (s->reactor() != this) {
@@ -238,20 +253,4 @@ xq::net::Reactor::check_timeout() noexcept {
             ++itr;
         }
     }
-}
-
-
-void
-xq::net::Reactor::on_broadcast(void* params) noexcept {
-    auto arg = (OnBroadcastArg*)params;
-    
-    for (auto& [fd, s] : sessions_) {
-        if (s->reactor() != this) {
-            continue;
-        }
-
-        s->send(this, arg->data, arg->len);
-    }
-
-    xq::utils::free(params);
 }

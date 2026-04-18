@@ -7,11 +7,14 @@
 
 
 #include "xq/net/acceptor.hpp"
+#include "xq/utils/signal.h"
 
 
 static void
 signal_handle(int sig) {
-    xq::net::Acceptor::instance()->stop();
+    if (sig == SIGINT || sig == SIGTERM) {
+        xq::net::Acceptor::instance()->stop();
+    }
 }
 
 
@@ -34,12 +37,11 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         nr -= 2;
     }
 
-    static constexpr int MAX_EVENT = 10;
+    constexpr int MAX_EVENT = 10;
     ::epoll_event ev{}, events[MAX_EVENT];
     EpollArg ea;
 
-    std::signal(SIGINT, signal_handle);
-    std::signal(SIGTERM, signal_handle);
+    xq::utils::regist_signal(signal_handle, { SIGINT, SIGTERM });
 
     for (uint32_t i = 0; i < nr; ++i) {
         Reactor* r = new Reactor();
@@ -52,22 +54,22 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     }
 
     epfd_ = ::epoll_create1(0);
-    ASSERT(epfd_ != -1, "epoll_create1 failed: [{}] {}", errno, ::strerror(errno));
+    ASSERT(epfd_ != INVALID_SOCKET, "epoll_create1 failed: [{}] {}", errno, ::strerror(errno));
 
     evfd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    ASSERT(evfd_ != -1, "eventfd failed: [{}] {}", errno, ::strerror(errno));
+    ASSERT(evfd_ != INVALID_SOCKET, "eventfd failed: [{}] {}", errno, ::strerror(errno));
 
     ea.type = EA_TYPE_QUEUE;
     ea.data = this;
     ev.data.ptr = &ea;
     ev.events = EPOLLIN | EPOLLET;
-    ::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev);
+    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
 
     for (auto l: listeners) {
         l->start(this);
         ev.events = EPOLLIN | EPOLLET;
         ev.data.ptr = l->arg();
-        ::epoll_ctl(epfd_, EPOLL_CTL_ADD, l->fd(), &ev);
+        ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, l->fd(), &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
     }
 
     int err = 0;
@@ -80,7 +82,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
             if (err == EINTR) {
                 continue;
             }
-
             xERROR("epoll_wait failed: [{}] {}", err, ::strerror(err));
             break;
         }
@@ -106,7 +107,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     }
 
     for (auto l: listeners) {
-        ::epoll_ctl(epfd_, EPOLL_CTL_DEL, l->fd(), &ev);
+        ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, l->fd(), &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
         l->stop();
     }
 
@@ -181,8 +182,9 @@ xq::net::Acceptor::queue_handle(EpollArg* ea) noexcept {
     while (1) {
         n = ::read(evfd_, &val, sizeof(val));
         if (n < 0) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                xERROR("read failed: [{}] {}", errno, ::strerror(errno));
+            int err = errno;
+            if (err != EAGAIN && err != EWOULDBLOCK) {
+                xERROR("read failed: [{}] {}", err, ::strerror(err));
             }
             break;
         }
@@ -197,7 +199,8 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
     while (1) {
         SOCKET cfd = l->accept();
         if (cfd == INVALID_SOCKET) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            int err = errno;
+            if (err != EAGAIN && err != EWOULDBLOCK) {
                 stop();
             }
             break;

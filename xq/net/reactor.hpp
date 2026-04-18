@@ -47,11 +47,11 @@ public:
 
     
     void
-    run();
+    run() noexcept;
 
     
     void
-    stop();
+    stop() noexcept;
 
 
     void
@@ -85,6 +85,18 @@ public:
 
 private:
     void
+    evque_handle(EpollArg* ea) noexcept;
+
+
+    void
+    session_recv_handle(EpollArg* ea) noexcept;
+
+
+    void
+    session_send_handle(EpollArg* ea) noexcept;
+
+
+    void
     on_accept(void* params) noexcept;
 
 
@@ -101,19 +113,7 @@ private:
 
 
     void
-    evque_handle(EpollArg* ea) noexcept;
-
-
-    void
-    session_recv_handle(EpollArg* ea) noexcept;
-
-
-    void
-    session_send_handle(EpollArg* ea) noexcept;
-
-
-    void
-    check_timeout() noexcept;
+    timer_handle() noexcept;
 
 
     SOCKET epfd_ { INVALID_SOCKET };
