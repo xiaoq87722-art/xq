@@ -6,26 +6,26 @@ class EchoService : public xq::net::IService {
 public:
     virtual void
     on_start(xq::net::Listener* l) override {
-        xINFO("{} start", l->to_string());
+        // xINFO("{} start", l->to_string());
     }
 
 
     virtual void
     on_stop(xq::net::Listener* l) override {
-        xINFO("{} stop", l->to_string());
+        // xINFO("{} stop", l->to_string());
     }
 
 
     virtual int
     on_connected(xq::net::Session* s) override {
-        xINFO("{} connected", s->to_string());
+        // xINFO("{} connected", s->to_string());
         return 0;
     }
 
 
     virtual void
     on_disconnected(xq::net::Session* s) override {
-        xINFO("{} disconnected", s->to_string());
+        // xINFO("{} disconnected", s->to_string());
     }
 
 

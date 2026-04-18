@@ -39,6 +39,8 @@ xq::net::Reactor::run() {
     int err = 0;
     state_.store(STATE_RUNNING);
 
+    time_t last_check_time = 0;
+
     while (1) {
         int nfds = ::epoll_wait(epfd_, events, MAX_EVENT, 5000);
 
@@ -76,7 +78,10 @@ xq::net::Reactor::run() {
             break;
         }
 
-        check_timeout();
+        if (last_check_time + 5 <= tnow_) {
+            check_timeout();
+            last_check_time = tnow_;
+        }
     }
 
     if (evfd_ != INVALID_SOCKET) {

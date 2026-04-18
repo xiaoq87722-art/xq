@@ -32,7 +32,7 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
     socklen_t addrlen = sizeof(addr_);
     ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
 
-    last_active_ = xq::utils::systime();
+    last_active_ = reactor_->tnow();
 }
 
 
@@ -86,7 +86,7 @@ xq::net::Session::recv() noexcept {
         }
     }
 
-    last_active_ = xq::utils::systime();
+    last_active_ = reactor_->tnow();
     return RBUF_MAX - nleft;
 }
 

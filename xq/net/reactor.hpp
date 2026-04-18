@@ -39,6 +39,12 @@ public:
         return epfd_;
     }
 
+
+    time_t
+    tnow() const noexcept {
+        return tnow_;
+    }
+
     
     void
     run();
