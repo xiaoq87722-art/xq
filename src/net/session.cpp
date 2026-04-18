@@ -1,6 +1,7 @@
 #include "xq/net/listener.hpp"
 #include "xq/net/reactor.hpp"
 #include "xq/net/session.hpp"
+#include "xq/utils/time.hpp"
 
 
 void
@@ -30,6 +31,8 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
 
     socklen_t addrlen = sizeof(addr_);
     ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
+
+    last_active_ = xq::utils::systime();
 }
 
 
@@ -83,6 +86,7 @@ xq::net::Session::recv() noexcept {
         }
     }
 
+    last_active_ = xq::utils::systime();
     return RBUF_MAX - nleft;
 }
 

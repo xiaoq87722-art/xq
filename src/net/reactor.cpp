@@ -7,6 +7,7 @@
 #include "xq/net/acceptor.hpp"
 #include "xq/net/reactor.hpp"
 #include "xq/utils/signal.h"
+#include "xq/utils/time.hpp"
 
 
 void
@@ -50,6 +51,8 @@ xq::net::Reactor::run() {
             break;
         }
 
+        tnow_ = xq::utils::systime();
+
         for (int i = 0; i < nfds; ++i) {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
@@ -71,6 +74,8 @@ xq::net::Reactor::run() {
         if (!running()) {
             break;
         }
+
+        check_timeout();
     }
 
     if (evfd_ != INVALID_SOCKET) {
@@ -142,8 +147,9 @@ xq::net::Reactor::evque_handle(EpollArg* ea) noexcept {
     while (1) {
         n = ::read(evfd_, &val, sizeof(val));
         if (n < 0) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                xERROR("read failed: [{}] {}", errno, ::strerror(errno));
+            int err = errno;
+            if (err != EAGAIN && err != EWOULDBLOCK) {
+                xERROR("read failed: [{}] {}", err, ::strerror(err));
             }
             break;
         }
@@ -189,9 +195,7 @@ xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
         xERROR("recv failed for session [{}]: {}", s->to_string(), -n);
     }
 
-    s->listener()->service()->on_disconnected(s);
     remove_session(s->fd());
-    s->release();
 }
 
 
@@ -202,5 +206,25 @@ xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
     s->can_send_ = true;
     if (res = s->send(this, nullptr, 0), res < 0) {
         xERROR("send failed for session [{}]: {}", s->to_string(), -res);
+    }
+}
+
+
+void
+xq::net::Reactor::check_timeout() noexcept {
+    for (auto itr = sessions_.begin(); itr != sessions_.end();) {
+        auto s = itr->second;
+        if (s->reactor() != this) {
+            ++itr;
+            continue;
+        }
+
+        if (s->is_timeout(tnow_)) {
+            SOCKET fd = itr->first;
+            ++itr;
+            remove_session(fd);
+        } else {
+            ++itr;
+        }
     }
 }

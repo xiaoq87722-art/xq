@@ -2,6 +2,7 @@
 #define __XQ_NET_SESSION_HPP__
 
 
+#include "xq/net/conf.hpp"
 #include "xq/net/event.hpp"
 #include "xq/net/net.in.hpp"
 #include "xq/utils/mpsc.hpp"
@@ -85,8 +86,15 @@ public:
 
 
 private:
+    bool
+    is_timeout(time_t now) const noexcept {
+        return now - last_active_ >= Conf::instance()->timeout();
+    }
+
+
     EpollArg ea_ {};
     SOCKET fd_ { INVALID_SOCKET };
+    time_t last_active_ { 0 };
     Listener* listener_ { nullptr };
     Reactor* reactor_ { nullptr };
     sockaddr_storage addr_ {};

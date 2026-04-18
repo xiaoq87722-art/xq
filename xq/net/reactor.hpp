@@ -66,7 +66,14 @@ public:
 
     void
     remove_session(SOCKET fd) noexcept {
-        sessions_.erase(fd);
+        auto itr = sessions_.find(fd);
+        if (itr != sessions_.end()) {
+            auto s = itr->second;
+            s->listener()->service()->on_disconnected(s);
+            ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, s->fd(), nullptr), "epoll_ctl failed");
+            sessions_.erase(itr);
+            s->release();
+        }
     }
 
 
@@ -95,8 +102,13 @@ private:
     session_send_handle(EpollArg* ea) noexcept;
 
 
+    void
+    check_timeout() noexcept;
+
+
     SOCKET epfd_ { INVALID_SOCKET };
     SOCKET evfd_ { INVALID_SOCKET };
+    time_t tnow_ { 0 };
     std::atomic<int> state_ { STATE_STOPPED };
     xq::utils::MPSC<Event> evque_ { 8, 1024 };
     std::unordered_map<SOCKET, Session*> sessions_;
