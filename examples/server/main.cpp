@@ -31,7 +31,11 @@ public:
 
     virtual int
     on_data(xq::net::Context* ctx, const char* data, size_t len) override {
-        ctx->send(data, len);
+        if (len % 5 == 0) {
+            ctx->session->broadcast(data, len);
+        } else {
+            ctx->send(data, len);
+        }
         return 0;
     }
 };

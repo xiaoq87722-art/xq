@@ -63,7 +63,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     ::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev);
 
     for (auto l: listeners) {
-        l->start();
+        l->start(this);
         ev.events = EPOLLIN | EPOLLET;
         ev.data.ptr = l->arg();
         ::epoll_ctl(epfd_, EPOLL_CTL_ADD, l->fd(), &ev);
@@ -156,6 +156,19 @@ xq::net::Acceptor::stop() noexcept {
         static constexpr uint64_t stop = 1;
         ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
     }
+}
+
+
+int
+xq::net::Acceptor::broadcast(const char* data, size_t len) noexcept {
+    for (auto& r: reactors_) {
+        OnBroadcastArg* arg = (OnBroadcastArg*)xq::utils::malloc(sizeof(OnBroadcastArg) + len);
+        ::memcpy(arg->data, data, len);
+        arg->len = len;
+        r->post({ EV_CMD_BROADCAST, arg });
+    }
+
+    return 0;
 }
 
 

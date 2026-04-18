@@ -64,6 +64,10 @@ public:
     stop() noexcept;
 
 
+    int
+    broadcast(const char* data, size_t len) noexcept;
+
+
 private:
     explicit Acceptor() noexcept {}
 

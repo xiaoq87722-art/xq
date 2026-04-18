@@ -40,15 +40,16 @@ constexpr int EA_TYPE_QUEUE = 2;
 constexpr int EA_TYPE_SESSION = 3;
 
 
-constexpr int EV_CMD_ACCEPT = 1;
-constexpr int EV_CMD_STOP = 2;
-constexpr int EV_CMD_SEND = 3;
-
-
 struct EpollArg {
     int type;
     void* data;
 };
+
+
+constexpr int EV_CMD_ACCEPT = 1;
+constexpr int EV_CMD_STOP = 2;
+constexpr int EV_CMD_SEND = 3;
+constexpr int EV_CMD_BROADCAST = 4;
 
 
 struct Event {
@@ -60,6 +61,12 @@ struct Event {
 struct OnAcceptArg {
     SOCKET fd;
     Listener* l;
+};
+
+
+struct OnBroadcastArg {
+    size_t len;
+    char data[];
 };
 
 

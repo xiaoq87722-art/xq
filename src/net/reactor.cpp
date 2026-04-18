@@ -179,6 +179,10 @@ xq::net::Reactor::evque_handle(EpollArg* ea) noexcept {
             case EV_CMD_SEND:
                 on_send(evs[i].data);
                 break;
+
+            case EV_CMD_BROADCAST:
+                on_broadcast(evs[i].data);
+                break;
             }
         }
     } // while (!evque_.empty());
@@ -234,4 +238,20 @@ xq::net::Reactor::check_timeout() noexcept {
             ++itr;
         }
     }
+}
+
+
+void
+xq::net::Reactor::on_broadcast(void* params) noexcept {
+    auto arg = (OnBroadcastArg*)params;
+    
+    for (auto& [fd, s] : sessions_) {
+        if (s->reactor() != this) {
+            continue;
+        }
+
+        s->send(this, arg->data, arg->len);
+    }
+
+    xq::utils::free(params);
 }

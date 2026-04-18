@@ -9,6 +9,9 @@
 namespace xq::net {
 
 
+class Acceptor;
+
+
 class Listener {
 public:
     Listener(IService* service, const char* endpoint, uint16_t port)
@@ -46,9 +49,14 @@ public:
         return &arg_;
     }
 
+    Acceptor*
+    acceptor() noexcept {
+        return acceptor_;
+    }
+
 
     void
-    start() noexcept;
+    start(Acceptor* acceptor) noexcept;
 
 
     void
@@ -69,6 +77,7 @@ public:
 
 private:
     SOCKET fd_ { INVALID_SOCKET };
+    Acceptor* acceptor_ { nullptr };
     EpollArg arg_ {};
     std::string host_ {};
     IService* service_ { nullptr };

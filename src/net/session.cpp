@@ -1,3 +1,4 @@
+#include "xq/net/acceptor.hpp"
 #include "xq/net/listener.hpp"
 #include "xq/net/reactor.hpp"
 #include "xq/net/session.hpp"
@@ -160,4 +161,10 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
     }
 
     return total - (ssize_t)sbuf_.readable();
+}
+
+
+int
+xq::net::Session::broadcast(const char* data, size_t len) noexcept {
+    return listener_->acceptor()->broadcast(data, len);
 }

@@ -85,6 +85,10 @@ public:
     send(const Reactor* r, const char* data, size_t len) noexcept;
 
 
+    int
+    broadcast(const char* data, size_t len) noexcept;
+
+
 private:
     bool
     is_timeout(time_t now) const noexcept {

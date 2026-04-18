@@ -85,7 +85,7 @@ public:
 
 private:
     void
-    on_accept(void* arg) noexcept;
+    on_accept(void* params) noexcept;
 
 
     void
@@ -93,7 +93,11 @@ private:
 
 
     void
-    on_send(void* arg) noexcept;
+    on_send(void* params) noexcept;
+
+
+    void
+    on_broadcast(void* params) noexcept;
 
 
     void
