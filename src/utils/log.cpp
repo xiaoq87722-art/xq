@@ -14,25 +14,35 @@ private:
     std::shared_ptr<spdlog::sinks::sink> wrapped_sink_;
     spdlog::level::level_enum target_level_;
 
+
 public:
     LevelFilterSink(std::shared_ptr<spdlog::sinks::sink> sink, spdlog::level::level_enum level)
-        : wrapped_sink_(sink), target_level_(level) {}
+        : wrapped_sink_(sink), target_level_(level) 
+    {}
 
-    void log(const spdlog::details::log_msg& msg) override {
+
+    void
+    log(const spdlog::details::log_msg& msg) override {
         if (msg.level == target_level_) {
             wrapped_sink_->log(msg);
         }
     }
 
-    void flush() override {
+
+    void
+    flush() override {
         wrapped_sink_->flush();
     }
 
-    void set_pattern(const std::string& pattern) override {
+
+    void
+    set_pattern(const std::string& pattern) override {
         wrapped_sink_->set_pattern(pattern);
     }
 
-    void set_formatter(std::unique_ptr<spdlog::formatter> formatter) override {
+
+    void
+    set_formatter(std::unique_ptr<spdlog::formatter> formatter) override {
         wrapped_sink_->set_formatter(std::move(formatter));
     }
 };
