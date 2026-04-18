@@ -13,13 +13,6 @@ public:
         return &conf;
     }
 
-
-    /** 队列深度 */
-    int
-    que_depth() const {
-        return que_depth_;
-    }
-
     /** 接收缓冲区大小 */
     int
     rcv_buf() const {
@@ -44,17 +37,6 @@ public:
         return per_max_conn_;
     }
 
-    /** buf ring 缓冲区大小 */
-    int
-    br_buf_size() const {
-        return br_buf_size_;
-    }
-
-    /** buf ring 缓冲区数量 */
-    int
-    br_buf_count() const {
-        return br_buf_count_;
-    }
 
     /** 心跳检查频率 */
     int
@@ -66,15 +48,11 @@ public:
 private:
     Conf() {}
 
-
-    int que_depth_         { 1024 };
     int rcv_buf_           { 1024 * 256 };
     int snd_buf_           { 1024 * 256 };
     int timeout_           { 40 };
     int per_max_conn_      { 1000 };
-    int br_buf_size_       { 1024 * 4 };
-    int br_buf_count_      { 4096 };
-    int hb_check_interval_ { 5 };
+    int hb_check_interval_ { 5000 };
 }; // class Conf;
 
         

@@ -45,7 +45,7 @@ public:
 
 
     Session*
-    (&sessions() noexcept)[100000] {
+    (&sessions() noexcept)[MAX_CONN] {
         return sessions_;
     }
 

@@ -1,4 +1,5 @@
 #include <immintrin.h>
+#include <netinet/tcp.h>
 
 
 #include <csignal>
@@ -207,6 +208,9 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
             ::close(cfd);
             continue;
         }
+
+        constexpr int nodelay = 1;
+        ASSERT(!::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)), "setsockopt failed: [{}] {}", errno, ::strerror(errno));
 
         OnAcceptArg* arg = (OnAcceptArg*)xq::utils::malloc(sizeof(OnAcceptArg));
         arg->fd = cfd;

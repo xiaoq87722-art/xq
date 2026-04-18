@@ -77,15 +77,14 @@ public:
 
 private:
     SOCKET fd_ { INVALID_SOCKET };
+    IService* service_ { nullptr };
     Acceptor* acceptor_ { nullptr };
     EpollArg arg_ {};
     std::string host_ {};
-    IService* service_ { nullptr };
 }; // class Listener;
 
 
 } // namespace xq::net
-
 
 
 #endif // __XQ_NET_LISTENER_HPP_
