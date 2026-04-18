@@ -39,6 +39,10 @@ SOCKET
 tcp_listen(const char* endpoint, int rcv_buf, int snd_buf) noexcept;
 
 
+SOCKET
+tcp_connect(const char* host) noexcept;
+
+
 /**
  * @brief 设置 fd 为非阻塞
  * 

@@ -198,7 +198,7 @@ xq::net::Reactor::on_accept(void* params) noexcept {
 
     Session* s = Acceptor::instance()->sessions()[fd];
     if (!s) {
-        Acceptor::instance()->sessions()[fd] = s = (Session*)xq::utils::malloc(sizeof(Session), true);
+        Acceptor::instance()->sessions()[fd] = s = Session::create();
     }
     s->init(fd, arg->l, this);
 

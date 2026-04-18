@@ -31,7 +31,7 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
     }
 
     socklen_t addrlen = sizeof(addr_);
-    ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
+    ASSERT(!::getpeername(fd_, (sockaddr*)&addr_, &addrlen), "getpeername failed: [{}] {}", errno, ::strerror(errno));
 
     last_active_ = reactor_->tnow();
 }
