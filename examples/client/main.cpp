@@ -20,13 +20,15 @@ static int         g_threads  = 2;
 static int         g_msgsize  = 2 * 1024;
 static int         g_rate     = 100;   // msg/s per connection
 static int         g_duration = 30;
-static const char* g_host     = "127.0.0.1";
+static const char* g_host     = "172.26.29.158";
 static int         g_port     = 8888;
+static bool        g_verify   = false;
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
-static std::atomic<uint64_t> g_sent {0};
-static std::atomic<uint64_t> g_recv {0};
-static std::atomic<uint64_t> g_err  {0};
+static std::atomic<uint64_t> g_sent       {0};
+static std::atomic<uint64_t> g_recv       {0};
+static std::atomic<uint64_t> g_err        {0};
+static std::atomic<uint64_t> g_verify_err {0};
 
 // 延迟分桶：<100us / <1ms / <10ms / <100ms / >=100ms
 static std::atomic<uint64_t> g_lat[5] {};
@@ -145,6 +147,15 @@ static void worker(int conn_start, int conn_end, std::atomic<bool>& stop) {
                         g_lat[lat_bucket(rtt_us)].fetch_add(1, std::memory_order_relaxed);
                         ++g_recv;
 
+                        if (g_verify) {
+                            for (int j = (int)sizeof(uint64_t); j < g_msgsize; ++j) {
+                                if ((unsigned char)c->rbuf[j] != 0xAB) {
+                                    ++g_verify_err;
+                                    break;
+                                }
+                            }
+                        }
+
                         c->rlen -= g_msgsize;
                         if (c->rlen > 0)
                             memmove(c->rbuf.data(), c->rbuf.data() + g_msgsize, c->rlen);
@@ -192,16 +203,18 @@ int main(int argc, char** argv) {
         else if (a == "-d" && i+1 < argc) g_duration = atoi(argv[++i]);
         else if (a == "-h" && i+1 < argc) g_host     = argv[++i];
         else if (a == "-p" && i+1 < argc) g_port     = atoi(argv[++i]);
+        else if (a == "-v")               g_verify   = true;
         else if (a == "--help") {
             std::cout <<
                 "usage: client [options]\n"
                 "  -c <n>   connections   (default 100)\n"
                 "  -t <n>   worker threads(default 2)\n"
                 "  -r <n>   msg/s per conn(default 100)\n"
-                "  -s <n>   msg size bytes(default 64)\n"
+                "  -s <n>   msg size bytes(default 2048)\n"
                 "  -d <n>   duration secs (default 30)\n"
                 "  -h <ip>  server host   (default 127.0.0.1)\n"
-                "  -p <n>   server port   (default 8888)\n";
+                "  -p <n>   server port   (default 8888)\n"
+                "  -v       verify echo data correctness\n";
             return 0;
         }
     }
@@ -210,8 +223,9 @@ int main(int argc, char** argv) {
     if (g_threads > g_conns) g_threads = g_conns;
 
     std::cout << std::format(
-        "bench: {} conns / {} threads / {} msg/s per conn / {} B / {}s → {}:{}\n",
-        g_conns, g_threads, g_rate, g_msgsize, g_duration, g_host, g_port);
+        "bench: {} conns / {} threads / {} msg/s per conn / {} B / {}s → {}:{}{}\n",
+        g_conns, g_threads, g_rate, g_msgsize, g_duration, g_host, g_port,
+        g_verify ? "  [verify ON]" : "");
     std::cout << std::format(
         "total target: {} msg/s\n\n", (uint64_t)g_conns * g_rate);
 
@@ -233,8 +247,11 @@ int main(int argc, char** argv) {
         uint64_t sent = g_sent.load();
         uint64_t recv = g_recv.load();
         uint64_t err  = g_err.load();
-        std::cout << std::format("[{:3d}s] sent {:8d}/s  recv {:8d}/s  err {}\n",
+        std::cout << std::format("[{:3d}s] sent {:8d}/s  recv {:8d}/s  err {}",
             t + 1, sent - prev_sent, recv - prev_recv, err);
+        if (g_verify)
+            std::cout << std::format("  verify_err {}", g_verify_err.load());
+        std::cout << '\n';
 
         prev_sent = sent;
         prev_recv = recv;
@@ -255,6 +272,8 @@ int main(int argc, char** argv) {
     std::cout << std::format(
         "\ntotal sent: {}  recv: {}  err: {}\n",
         g_sent.load(), total, g_err.load());
+    if (g_verify)
+        std::cout << std::format("verify_err: {}\n", g_verify_err.load());
 
     return 0;
 }

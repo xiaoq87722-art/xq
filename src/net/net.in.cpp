@@ -139,14 +139,14 @@ xq::net::tcp_connect(const char* host) noexcept {
             continue;
         }
 
-        if (::connect(cfd, res->ai_addr, res->ai_addrlen) == 0) {
-            break;
-        }
-
         int nodelay = 1;
         if (::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay))) {
             ::close(cfd);
             continue;
+        }
+
+        if (::connect(cfd, res->ai_addr, res->ai_addrlen) == 0) {
+            break;
         }
 
         ::close(cfd);
