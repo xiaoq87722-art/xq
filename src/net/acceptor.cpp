@@ -36,10 +36,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         nr -= 2;
     }
 
-    constexpr int MAX_EVENT = 16;
-    ::epoll_event ev{}, events[MAX_EVENT];
-    EpollArg ea;
-
     xq::utils::regist_signal(signal_handle, { SIGINT, SIGTERM });
 
     for (uint32_t i = 0; i < nr; ++i) {
@@ -51,17 +47,11 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         }
     }
 
-    epfd_ = ::epoll_create1(0);
-    ASSERT(epfd_ != INVALID_SOCKET, "epoll_create1 failed: [{}] {}", errno, ::strerror(errno));
+    EpollArg ea { EpollArg::Type::Event, this };
+    init_epoll_event(&epfd_, &evfd_, &ea);
 
-    evfd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    ASSERT(evfd_ != INVALID_SOCKET, "eventfd failed: [{}] {}", errno, ::strerror(errno));
-
-    ea.type = EpollArg::Type::Event;
-    ea.data = this;
-    ev.data.ptr = &ea;
-    ev.events = EPOLLIN | EPOLLET;
-    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+    constexpr int MAX_EVENT = 16;
+    ::epoll_event ev{}, events[MAX_EVENT];
 
     for (auto l: listeners) {
         l->start(this);
@@ -105,7 +95,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     }
 
     for (auto l: listeners) {
-        ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, l->fd(), &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
         l->stop();
     }
 
@@ -118,27 +107,17 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         delete r;
     }
 
-    if (evfd_ != INVALID_SOCKET) {
-        ::close(evfd_);
-        evfd_ = INVALID_SOCKET;
-    }
-    
-    if (epfd_ != INVALID_SOCKET) {
-        ::close(epfd_);
-        epfd_ = INVALID_SOCKET;
-    }
-
     reactors_.clear();
 
     for (int i = 0; i < MAX_CONN; ++i) {
         auto s = sessions_[i];
         if (s) {
-            s->release();
             xq::utils::free(s);
             sessions_[i] = nullptr;
         }
     }
 
+    release_epoll_event(&epfd_, &evfd_);
     state_.store(STATE_STOPPED);
 }
 

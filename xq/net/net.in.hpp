@@ -112,6 +112,14 @@ sockaddr_to_string(const sockaddr* addr) noexcept {
 }
 
 
+void
+init_epoll_event(SOCKET* epfd, SOCKET* evfd, EpollArg* ea) noexcept;
+
+
+void
+release_epoll_event(SOCKET* epfd, SOCKET* evfd) noexcept;
+
+
 } // namespace xq::net
 
 

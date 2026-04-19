@@ -54,22 +54,12 @@ void
 xq::net::Reactor::start() noexcept {
     xq::utils::block_signal({ SIGINT, SIGTERM });
 
-    epfd_ = ::epoll_create1(0);
-    ASSERT(epfd_ != -1, "epoll_create1 failed: [{}] {}", errno, ::strerror(errno));
-
-    evfd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    ASSERT(evfd_ != -1, "eventfd failed: [{}] {}", errno, ::strerror(errno));
+    EpollArg ea { EpollArg::Type::Event, this };
+    init_epoll_event(&epfd_, &evfd_, &ea);
 
     const int MAX_EVENT = Conf::instance()->per_max_conn();
     ::epoll_event ev{};
     ::epoll_event* events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) * MAX_EVENT, true);
-    EpollArg ea;
-
-    ea.type = EpollArg::Type::Event;
-    ea.data = this;
-    ev.data.ptr = &ea;
-    ev.events = EPOLLIN | EPOLLET;
-    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, evfd_, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
 
     int err = 0;
     time_t last_check_time = 0;
@@ -118,14 +108,13 @@ xq::net::Reactor::start() noexcept {
         }
     }
 
-    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, evfd_, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
-    ::close(evfd_);
-    evfd_ = INVALID_SOCKET;
-
-    ::close(epfd_);
-    epfd_ = INVALID_SOCKET;
+    for (auto& [fd, s] : sessions_) {
+        s->release();
+    }
 
     sessions_.clear();
+    release_epoll_event(&epfd_, &evfd_);
+    
     xq::utils::free(events);
     state_.store(STATE_STOPPED);
 }

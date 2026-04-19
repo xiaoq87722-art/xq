@@ -153,3 +153,26 @@ xq::net::tcp_connect(const char* host) noexcept {
 
     return cfd;
 }
+
+
+void
+xq::net::init_epoll_event(SOCKET* epfd, SOCKET* evfd, EpollArg* ea) noexcept {
+    *epfd = ::epoll_create1(0);
+    ASSERT(*epfd != INVALID_SOCKET, "epoll_create1 failed: [{}] {}", errno, ::strerror(errno));
+
+    *evfd = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    ASSERT(*evfd != INVALID_SOCKET, "eventfd failed: [{}] {}", errno, ::strerror(errno));
+    
+    ::epoll_event ev{};
+    ev.data.ptr = ea;
+    ev.events = EPOLLIN | EPOLLET;
+    ASSERT(!::epoll_ctl(*epfd, EPOLL_CTL_ADD, *evfd, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+}
+
+
+void
+xq::net::release_epoll_event(SOCKET* epfd, SOCKET* evfd) noexcept {
+    ASSERT(!::close(*epfd), "close failed: [{}] {}", errno, ::strerror(errno));
+    ASSERT(!::close(*evfd), "close failed: [{}] {}", errno, ::strerror(errno));
+    *epfd = *evfd = INVALID_SOCKET;
+}
