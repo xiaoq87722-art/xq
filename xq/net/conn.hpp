@@ -8,6 +8,9 @@
 namespace xq::net {
 
 
+class Connector;
+
+
 class Conn {
     Conn(const Conn&) = delete;
     Conn& operator=(const Conn&) = delete;
@@ -28,8 +31,37 @@ public:
     }
 
 
+    SOCKET
+    fd() const noexcept {
+        return fd_;
+    }
+
+
+    Connector*
+    connector() noexcept {
+        return c_;
+    }
+
+
+    EpollArg*
+    ea() noexcept {
+        return &ea_;
+    }
+
+
     int
-    connect(const char* host) noexcept;
+    connect(const char* host) noexcept {
+        fd_ = xq::net::tcp_connect(host);
+        return fd_ == INVALID_SOCKET ? -1 : 0;
+    }
+
+
+    void
+    init(Connector* c) noexcept {
+        c_ = c;
+        ea_.type = EpollArg::Type::Conn;
+        ea_.data = this;
+    }
 
 
     void
@@ -41,11 +73,21 @@ public:
     }
 
 
+    int
+    read(void* data, size_t dlen) noexcept;
+
+
+    int
+    write(const void* data, size_t dlen) noexcept;
+
+
 private:
-    Conn() {}
+    Conn() noexcept {}
 
 
     SOCKET fd_ { INVALID_SOCKET };
+    Connector* c_ { nullptr };
+    EpollArg ea_;
 }; // class Conn;
 
 

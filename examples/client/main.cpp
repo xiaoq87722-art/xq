@@ -17,7 +17,7 @@
 // ─── Config ───────────────────────────────────────────────────────────────────
 static int         g_conns    = 100;
 static int         g_threads  = 2;
-static int         g_msgsize  = 64;
+static int         g_msgsize  = 2 * 1024;
 static int         g_rate     = 100;   // msg/s per connection
 static int         g_duration = 30;
 static const char* g_host     = "127.0.0.1";

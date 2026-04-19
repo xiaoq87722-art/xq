@@ -1,4 +1,5 @@
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -134,11 +135,18 @@ xq::net::tcp_connect(const char* host) noexcept {
         }
 
         if (set_nonblocking(cfd)) {
+            ::close(cfd);
             continue;
         }
 
         if (::connect(cfd, res->ai_addr, res->ai_addrlen) == 0) {
             break;
+        }
+
+        int nodelay = 1;
+        if (::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay))) {
+            ::close(cfd);
+            continue;
         }
 
         ::close(cfd);

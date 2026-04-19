@@ -88,6 +88,21 @@ public:
     }
 
 
+    size_t
+    try_dequeue_bulk(T* buf, size_t max) noexcept {
+        size_t tail  = tail_.load(std::memory_order_relaxed);
+        size_t head  = head_.load(std::memory_order_acquire);
+        size_t count = std::min(head - tail, max);
+
+        for (size_t i = 0; i < count; ++i) {
+            buf[i] = std::move(slots_[(tail + i) & MASK].data);
+        }
+
+        tail_.store(tail + count, std::memory_order_release);
+        return count;
+    }
+
+
     bool
     empty() const noexcept {
         return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
