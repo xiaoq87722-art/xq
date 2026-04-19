@@ -18,7 +18,7 @@ namespace xq::utils {
  * @tparam T    元素类型，需支持移动语义
  * @tparam N    队列容量，必须是 2 的幂次方
  */
-template<typename T, size_t N>
+template<typename T, size_t N = 4096>
 class SPSC {
     static_assert(N > 0 && (N & (N - 1)) == 0, "N 必须是 2 的幂次方");
 

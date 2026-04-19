@@ -44,9 +44,8 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
 
     for (uint32_t i = 0; i < nr; ++i) {
         Reactor* r = new Reactor();
+        r->run();
         reactors_.emplace_back(r);
-        threads_.emplace_back(std::thread(std::bind(&xq::net::Reactor::run, r)));
-
         while(!r->running()) {
             _mm_pause();
         }
@@ -114,13 +113,8 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         r->stop();
     }
 
-    for (auto& t: threads_) {
-        if (t.joinable()) {
-            t.join();
-        }
-    }
-
     for (auto r: reactors_) {
+        r->join();
         delete r;
     }
 
@@ -135,7 +129,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     }
 
     reactors_.clear();
-    threads_.clear();
 
     for (int i = 0; i < MAX_CONN; ++i) {
         auto s = sessions_[i];

@@ -84,7 +84,6 @@ private:
     SOCKET evfd_ { INVALID_SOCKET };
     std::atomic<int> state_ { STATE_STOPPED };
     std::vector<Reactor*> reactors_;
-    std::vector<std::thread> threads_;
     Session* sessions_[MAX_CONN] { nullptr };
 }; // class Acceptor;
 

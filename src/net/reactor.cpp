@@ -12,11 +12,46 @@
 
 void
 xq::net::Reactor::run() noexcept {
-    int stopped_state = STATE_STOPPED;
-    if (!state_.compare_exchange_strong(stopped_state, STATE_STARTING)) {
+    int state_stopped = STATE_STOPPED;
+
+    if (state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
+        t_ = std::thread(&Reactor::start, this);
+    }
+}
+
+
+void
+xq::net::Reactor::stop() noexcept {
+    int state_running = STATE_RUNNING;
+    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
+        constexpr uint64_t stop = 1;
+        ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
+    }
+}
+
+
+void
+xq::net::Reactor::join() noexcept {
+    if (t_.joinable()) {
+        t_.join();
+    }
+}
+
+
+void
+xq::net::Reactor::post(Event ev) noexcept {
+    if (!running()) {
         return;
     }
 
+    constexpr uint64_t event = 1;
+    ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
+    ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+}
+
+
+void
+xq::net::Reactor::start() noexcept {
     xq::utils::block_signal({ SIGINT, SIGTERM });
 
     epfd_ = ::epoll_create1(0);
@@ -93,28 +128,6 @@ xq::net::Reactor::run() noexcept {
     sessions_.clear();
     xq::utils::free(events);
     state_.store(STATE_STOPPED);
-}
-
-
-void
-xq::net::Reactor::stop() noexcept {
-    int state_running = STATE_RUNNING;
-    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
-        constexpr uint64_t stop = 1;
-        ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
-    }
-}
-
-
-void
-xq::net::Reactor::post(Event ev) noexcept {
-    if (!running()) {
-        return;
-    }
-
-    constexpr uint64_t event = 1;
-    ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
-    ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
 }
 
 
