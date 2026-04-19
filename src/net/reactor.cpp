@@ -25,7 +25,7 @@ xq::net::Reactor::run() noexcept {
     evfd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     ASSERT(evfd_ != -1, "eventfd failed: [{}] {}", errno, ::strerror(errno));
 
-    static constexpr int MAX_EVENT = 4096;
+    const int MAX_EVENT = Conf::instance()->per_max_conn();
     ::epoll_event ev{};
     ::epoll_event* events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) * MAX_EVENT, true);
     EpollArg ea;
@@ -38,11 +38,11 @@ xq::net::Reactor::run() noexcept {
 
     int err = 0;
     time_t last_check_time = 0;
-
+    const int INTERVAL = Conf::instance()->hb_check_interval();
     state_.store(STATE_RUNNING);
 
     while (1) {
-        int nfds = ::epoll_wait(epfd_, events, MAX_EVENT, 5000);
+        int nfds = ::epoll_wait(epfd_, events, MAX_EVENT, INTERVAL);
 
         if (nfds < 0) {
             err = errno;
@@ -101,14 +101,21 @@ xq::net::Reactor::run() noexcept {
 
 void
 xq::net::Reactor::stop() noexcept {
-    constexpr uint64_t stop = 1;
-    ASSERT(evque_.enqueue(std::move(Event{ Event::Command::Stop, nullptr })), "evque_ 队列已满");
-    ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
+    int state_running = STATE_RUNNING;
+    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
+        constexpr uint64_t stop = 1;
+        ASSERT(evque_.enqueue({ Event::Command::Stop, nullptr }), "evque_ 队列已满");
+        ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
+    }
 }
 
 
 void
 xq::net::Reactor::post(Event ev) noexcept {
+    if (!running()) {
+        return;
+    }
+
     constexpr uint64_t event = 1;
     ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
     ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
