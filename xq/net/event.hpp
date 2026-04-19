@@ -54,7 +54,8 @@ struct Event {
     enum class Command {
         Accept = 1,
         Send = 2,
-        Broadcast = 3,
+        Connect = 3,
+        Broadcast = 4,
     };
 
 
