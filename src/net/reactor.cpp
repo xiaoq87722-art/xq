@@ -83,15 +83,12 @@ xq::net::Reactor::run() noexcept {
         }
     }
 
-    if (evfd_ != INVALID_SOCKET) {
-        ::close(evfd_);
-        evfd_ = INVALID_SOCKET;
-    }
+    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, evfd_, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+    ::close(evfd_);
+    evfd_ = INVALID_SOCKET;
 
-    if (epfd_ != INVALID_SOCKET) {
-        ::close(epfd_);
-        epfd_ = INVALID_SOCKET;
-    }
+    ::close(epfd_);
+    epfd_ = INVALID_SOCKET;
 
     sessions_.clear();
     xq::utils::free(events);
@@ -104,7 +101,6 @@ xq::net::Reactor::stop() noexcept {
     int state_running = STATE_RUNNING;
     if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
         constexpr uint64_t stop = 1;
-        ASSERT(evque_.enqueue({ Event::Command::Stop, nullptr }), "evque_ 队列已满");
         ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
     }
 }
@@ -144,11 +140,6 @@ xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
 
         for (int i = 0; i < n; ++i) {
             switch (evs[i].cmd) {
-            case Event::Command::Stop:
-                ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, evfd_, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
-                state_.store(STATE_STOPPING);
-                break;
-
             case Event::Command::Accept:
                 on_accept(evs[i].data);
                 break;

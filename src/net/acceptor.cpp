@@ -36,7 +36,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         nr -= 2;
     }
 
-    constexpr int MAX_EVENT = 10;
+    constexpr int MAX_EVENT = 16;
     ::epoll_event ev{}, events[MAX_EVENT];
     EpollArg ea;
 
@@ -95,7 +95,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
                 break;
             
             case EpollArg::Type::Event:
-                queue_handle(ea);
+                event_handle(ea);
                 break;
             }  
         }
@@ -154,7 +154,7 @@ void
 xq::net::Acceptor::stop() noexcept {
     int state_running = STATE_RUNNING;
     if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
-        static constexpr uint64_t stop = 1;
+        constexpr uint64_t stop = 1;
         ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
     }
 }
@@ -174,7 +174,7 @@ xq::net::Acceptor::broadcast(const char* data, size_t len) noexcept {
 
 
 void
-xq::net::Acceptor::queue_handle(EpollArg* ea) noexcept {
+xq::net::Acceptor::event_handle(EpollArg* ea) noexcept {
     int n;
     uint64_t val;
 

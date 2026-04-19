@@ -53,9 +53,8 @@ public:
 struct Event {
     enum class Command {
         Accept = 1,
-        Stop = 2,
-        Send = 3,
-        Broadcast = 4,
+        Send = 2,
+        Broadcast = 3,
     };
 
 

@@ -73,7 +73,7 @@ private:
 
 
     void
-    queue_handle(EpollArg* ea) noexcept;
+    event_handle(EpollArg* ea) noexcept;
 
 
     void

@@ -18,7 +18,6 @@ all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS) $(LIBS)
-	rm -f $(OBJS)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDE) -c -o $@ $<
