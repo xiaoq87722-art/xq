@@ -30,7 +30,7 @@ xq::net::Reactor::run() noexcept {
     ::epoll_event* events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) * MAX_EVENT, true);
     EpollArg ea;
 
-    ea.type = EA_TYPE_QUEUE;
+    ea.type = EpollArg::Type::Event;
     ea.data = this;
     ev.data.ptr = &ea;
     ev.events = EPOLLIN | EPOLLET;
@@ -59,8 +59,8 @@ xq::net::Reactor::run() noexcept {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
 
-            if (ea->type == EA_TYPE_QUEUE) {
-                evque_handle(ea);
+            if (ea->type == EpollArg::Type::Event) {
+                event_handle(ea);
             } else {
                 if ((ev.events & (EPOLLERR | EPOLLHUP)) || ev.events & EPOLLIN) {
                     session_recv_handle(ea);
@@ -102,7 +102,7 @@ xq::net::Reactor::run() noexcept {
 void
 xq::net::Reactor::stop() noexcept {
     constexpr uint64_t stop = 1;
-    ASSERT(evque_.enqueue(std::move(Event{ EV_CMD_STOP, nullptr })), "evque_ 队列已满");
+    ASSERT(evque_.enqueue(std::move(Event{ Event::Command::Stop, nullptr })), "evque_ 队列已满");
     ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
 }
 
@@ -116,7 +116,7 @@ xq::net::Reactor::post(Event ev) noexcept {
 
 
 void
-xq::net::Reactor::evque_handle(EpollArg* ea) noexcept {
+xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
     int n;
     Event evs[16];
     uint64_t val;
@@ -137,20 +137,20 @@ xq::net::Reactor::evque_handle(EpollArg* ea) noexcept {
 
         for (int i = 0; i < n; ++i) {
             switch (evs[i].cmd) {
-            case EV_CMD_STOP:
+            case Event::Command::Stop:
                 ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, evfd_, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
                 state_.store(STATE_STOPPING);
                 break;
 
-            case EV_CMD_ACCEPT:
+            case Event::Command::Accept:
                 on_accept(evs[i].data);
                 break;
 
-            case EV_CMD_SEND:
+            case Event::Command::Send:
                 on_send(evs[i].data);
                 break;
 
-            case EV_CMD_BROADCAST:
+            case Event::Command::Broadcast:
                 on_broadcast(evs[i].data);
                 break;
             }
@@ -193,7 +193,7 @@ xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
 
 void
 xq::net::Reactor::on_accept(void* params) noexcept {
-    auto arg = (OnAcceptArg*)params;
+    auto arg = (EventAcceptParam*)params;
     auto fd = arg->fd;
 
     Session* s = Acceptor::instance()->sessions()[fd];
@@ -222,7 +222,7 @@ xq::net::Reactor::on_send(void* arg) noexcept {
 
 void
 xq::net::Reactor::on_broadcast(void* params) noexcept {
-    auto arg = (OnBroadcastArg*)params;
+    auto arg = (EventBroadcastParam*)params;
 
     for (auto& [fd, s] : sessions_) {
         if (s->reactor() != this) {

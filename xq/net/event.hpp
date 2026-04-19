@@ -50,36 +50,27 @@ public:
 }; // class IService;
 
 
-constexpr int EA_TYPE_LISTENER = 1;
-constexpr int EA_TYPE_QUEUE = 2;
-constexpr int EA_TYPE_SESSION = 3;
-
-
-struct EpollArg {
-    int type;
-    void* data;
-};
-
-
-constexpr int EV_CMD_ACCEPT = 1;
-constexpr int EV_CMD_STOP = 2;
-constexpr int EV_CMD_SEND = 3;
-constexpr int EV_CMD_BROADCAST = 4;
-
-
 struct Event {
-    int cmd;
+    enum class Command {
+        Accept = 1,
+        Stop = 2,
+        Send = 3,
+        Broadcast = 4,
+    };
+
+
+    Command cmd;
     void* data;
 };
 
 
-struct OnAcceptArg {
+struct EventAcceptParam {
     SOCKET fd;
     Listener* l;
 };
 
 
-struct OnBroadcastArg {
+struct EventBroadcastParam {
     size_t len;
     char data[];
 };

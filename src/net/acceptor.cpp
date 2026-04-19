@@ -2,7 +2,6 @@
 #include <netinet/tcp.h>
 
 
-#include <csignal>
 #include <cstring>
 
 
@@ -59,7 +58,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     evfd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     ASSERT(evfd_ != INVALID_SOCKET, "eventfd failed: [{}] {}", errno, ::strerror(errno));
 
-    ea.type = EA_TYPE_QUEUE;
+    ea.type = EpollArg::Type::Event;
     ea.data = this;
     ev.data.ptr = &ea;
     ev.events = EPOLLIN | EPOLLET;
@@ -91,11 +90,11 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
             auto ea = (EpollArg*)ev.data.ptr;
 
             switch (ea->type) {
-            case EA_TYPE_LISTENER:
+            case EpollArg::Type::Listener:
                 listener_handle(ea);
                 break;
             
-            case EA_TYPE_QUEUE:
+            case EpollArg::Type::Event:
                 queue_handle(ea);
                 break;
             }  
@@ -164,10 +163,10 @@ xq::net::Acceptor::stop() noexcept {
 int
 xq::net::Acceptor::broadcast(const char* data, size_t len) noexcept {
     for (auto& r: reactors_) {
-        OnBroadcastArg* arg = (OnBroadcastArg*)xq::utils::malloc(sizeof(OnBroadcastArg) + len);
+        EventBroadcastParam* arg = (EventBroadcastParam*)xq::utils::malloc(sizeof(EventBroadcastParam) + len);
         ::memcpy(arg->data, data, len);
         arg->len = len;
-        r->post({ EV_CMD_BROADCAST, arg });
+        r->post({ Event::Command::Broadcast, arg });
     }
 
     return 0;
@@ -215,11 +214,11 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
         constexpr int nodelay = 1;
         ASSERT(!::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)), "setsockopt failed: [{}] {}", errno, ::strerror(errno));
 
-        OnAcceptArg* arg = (OnAcceptArg*)xq::utils::malloc(sizeof(OnAcceptArg));
+        EventAcceptParam* arg = (EventAcceptParam*)xq::utils::malloc(sizeof(EventAcceptParam));
         arg->fd = cfd;
         arg->l = l;
 
         auto r = next_reactor(reactors_);
-        r->post(Event{ EV_CMD_ACCEPT, arg });
+        r->post(Event{ Event::Command::Accept, arg });
     }   
 }

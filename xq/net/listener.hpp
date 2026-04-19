@@ -18,7 +18,7 @@ public:
         : service_(service) {
         ASSERT(endpoint && port > 0, "params is invalid");
         host_ = std::format("{}:{}", endpoint, port);
-        arg_.type = EA_TYPE_LISTENER;
+        arg_.type = EpollArg::Type::Listener;
         arg_.data = this;
     }
 

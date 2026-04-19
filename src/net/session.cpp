@@ -10,7 +10,7 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
     listener_ = listener;
     reactor_ = reactor;
     fd_ = fd;
-    ea_ = { EA_TYPE_SESSION, this };
+    ea_ = { EpollArg::Type::Session, this };
     
     if (sbuf_.capacity() < WBUF_MAX) {
         sbuf_.reset(WBUF_MAX);
@@ -103,7 +103,7 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
 
         bool expected = false;
         if (sending_.compare_exchange_strong(expected, true)) {
-            reactor_->post({ EV_CMD_SEND, this });
+            reactor_->post({ Event::Command::Send, this });
         }
 
         return 0;

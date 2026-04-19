@@ -85,7 +85,7 @@ public:
 
 private:
     void
-    evque_handle(EpollArg* ea) noexcept;
+    event_handle(EpollArg* ea) noexcept;
 
 
     void

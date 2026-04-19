@@ -30,6 +30,19 @@ constexpr int STATE_STOPPING = 3; // 正在停止
 namespace xq::net {
 
 
+struct EpollArg {
+    enum class Type {
+        Listener = 1,
+        Event = 2,
+        Session = 3,
+        Conn = 4,
+    };
+
+    Type type;
+    void* data;
+};
+
+
 /**
  * @brief 获取 TCP 监听套接字
  * 

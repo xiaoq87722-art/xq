@@ -2,6 +2,9 @@
 #include <gperftools/profiler.h>
 
 
+static bool ALLOW_BROADCAST = false;
+
+
 class EchoService : public xq::net::IService {
 public:
     virtual void
@@ -31,7 +34,7 @@ public:
 
     virtual int
     on_data(xq::net::Context* ctx, const char* data, size_t len) override {
-        if (len % 5 == 0) {
+        if (ALLOW_BROADCAST && len % 5 == 0) {
             ctx->session->broadcast(data, len);
         } else {
             ctx->send(data, len);
