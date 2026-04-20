@@ -21,6 +21,12 @@ public:
     {}
 
 
+    bool
+    running() const noexcept {
+        return state_.load() == STATE_RUNNING;
+    }
+
+
     void
     run() noexcept {
         int state_stopped = STATE_STOPPED;
@@ -48,6 +54,20 @@ public:
     }
 
 
+    void
+    post(Event ev) noexcept {
+        if (running()) {
+            constexpr uint64_t event = 1;
+            ASSERT(evque_.enqueue(std::move(ev)), "队列已满");
+
+            bool expected = false;
+            if (processing_.compare_exchange_strong(expected, true)) {
+                ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+            }
+        }
+    }
+
+
 private:
     void
     start() noexcept;
@@ -60,6 +80,7 @@ private:
     SOCKET epfd_ { INVALID_SOCKET };
     SOCKET evfd_ { INVALID_SOCKET };
     std::atomic<int> state_ { STATE_STOPPED };
+    std::atomic<bool> processing_ { false };
     std::thread t_;
     xq::utils::MPSC<Event> evque_ { 4, 4096 };
 }; // class ConnSender;
