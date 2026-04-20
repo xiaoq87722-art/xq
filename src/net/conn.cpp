@@ -1,5 +1,5 @@
 #include "xq/net/conn.hpp"
-#include "xq/net/connector.hpp"
+#include "xq/net/conn_recver.hpp"
 
 
 int
@@ -8,7 +8,7 @@ xq::net::Conn::read(void* data, size_t dlen) noexcept {
     size_t nleft = dlen;
 
     int n, err = 0;
-    while (1) {
+    while (nleft > 0) {
         n = ::recv(fd_, p, nleft, 0);
         if (n < 0) {
             err = errno;
@@ -24,11 +24,9 @@ xq::net::Conn::read(void* data, size_t dlen) noexcept {
             p += n;
             nleft -= n;
         }
-
-        if (nleft == 0) {
-            xFATAL("read buffer overflow");
-        }
     }
+
+    return dlen - nleft;
 }
 
 

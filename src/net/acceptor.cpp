@@ -157,6 +157,7 @@ xq::net::Acceptor::event_handle(EpollArg* ea) noexcept {
             int err = errno;
             if (err != EAGAIN && err != EWOULDBLOCK) {
                 xERROR("read failed: [{}] {}", err, ::strerror(err));
+                return;
             }
             break;
         }

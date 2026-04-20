@@ -122,7 +122,6 @@ xq::net::Reactor::start() noexcept {
 void
 xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
     int n;
-    Event evs[16];
     uint64_t val;
 
     while (1) {
@@ -136,9 +135,8 @@ xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
         }
     }
 
-    while (!evque_.empty()) {
-        n = evque_.try_dequeue_bulk(evs, 16);
-
+    Event evs[16];
+    while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
             switch (evs[i].cmd) {
             case Event::Command::Accept:

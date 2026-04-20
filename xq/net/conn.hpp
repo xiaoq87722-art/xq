@@ -2,13 +2,13 @@
 #define __XQ_NET_CONN_HPP__
 
 
-#include "xq/net/net.in.hpp"
+#include "xq/net/event.hpp"
 
 
 namespace xq::net {
 
 
-class Connector;
+class ConnRecver;
 
 
 class Conn {
@@ -37,9 +37,15 @@ public:
     }
 
 
-    Connector*
-    connector() noexcept {
-        return c_;
+    ConnRecver*
+    recver() noexcept {
+        return recver_;
+    }
+
+
+    IConnEvent*
+    service() noexcept {
+        return service_;
     }
 
 
@@ -57,8 +63,8 @@ public:
 
 
     void
-    init(Connector* c) noexcept {
-        c_ = c;
+    init(ConnRecver* c) noexcept {
+        recver_ = c;
         ea_.type = EpollArg::Type::Conn;
         ea_.data = this;
     }
@@ -86,7 +92,8 @@ private:
 
 
     SOCKET fd_ { INVALID_SOCKET };
-    Connector* c_ { nullptr };
+    ConnRecver* recver_ { nullptr };
+    IConnEvent* service_ { nullptr };
     EpollArg ea_;
 }; // class Conn;
 
