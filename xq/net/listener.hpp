@@ -14,7 +14,7 @@ class Acceptor;
 
 class Listener {
 public:
-    Listener(IService* service, const char* endpoint, uint16_t port)
+    Listener(IListnerEvent* service, const char* endpoint, uint16_t port)
         : service_(service) {
         ASSERT(endpoint && port > 0, "params is invalid");
         host_ = std::format("{}:{}", endpoint, port);
@@ -38,7 +38,7 @@ public:
     }
 
 
-    IService*
+    IListnerEvent*
     service() noexcept {
         return service_;
     }
@@ -77,7 +77,7 @@ public:
 
 private:
     SOCKET fd_ { INVALID_SOCKET };
-    IService* service_ { nullptr };
+    IListnerEvent* service_ { nullptr };
     Acceptor* acceptor_ { nullptr };
     EpollArg arg_ {};
     std::string host_ {};

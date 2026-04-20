@@ -61,14 +61,14 @@ xq::net::Reactor::start() noexcept {
     ::epoll_event ev{};
     ::epoll_event* events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) * MAX_EVENT, true);
 
-    int err = 0;
+    int nfds, err, i;
     time_t last_check_time = 0;
     const int INTERVAL = Conf::instance()->hb_check_interval();
     state_.store(STATE_RUNNING);
 
     while (1) {
-        int nfds = ::epoll_wait(epfd_, events, MAX_EVENT, INTERVAL);
-
+        err = 0;
+        nfds = ::epoll_wait(epfd_, events, MAX_EVENT, INTERVAL);
         if (nfds < 0) {
             err = errno;
             if (err == EINTR) {
@@ -80,7 +80,7 @@ xq::net::Reactor::start() noexcept {
 
         tnow_ = xq::utils::systime();
 
-        for (int i = 0; i < nfds; ++i) {
+        for (i = 0; i < nfds; ++i) {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
 

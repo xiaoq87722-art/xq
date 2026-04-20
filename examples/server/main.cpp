@@ -5,7 +5,7 @@
 static bool ALLOW_BROADCAST = false;
 
 
-class EchoService : public xq::net::IService {
+class EchoService : public xq::net::IListnerEvent {
 public:
     virtual void
     on_start(xq::net::Listener* l) override {

@@ -60,11 +60,12 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, l->fd(), &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
     }
 
-    int err = 0;
+    int err, nfds, i;
     state_.store(STATE_RUNNING);
 
     while (1) {
-        int nfds = ::epoll_wait(epfd_, events, MAX_EVENT, -1);
+        err = 0;
+        nfds = ::epoll_wait(epfd_, events, MAX_EVENT, -1);
         if (nfds < 0) {
             err = errno;
             if (err == EINTR) {
@@ -74,7 +75,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
             break;
         }
 
-        for (int i = 0; i < nfds; ++i) {
+        for (i = 0; i < nfds; ++i) {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
 
@@ -109,7 +110,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
 
     reactors_.clear();
 
-    for (int i = 0; i < MAX_CONN; ++i) {
+    for (i = 0; i < MAX_CONN; ++i) {
         auto s = sessions_[i];
         if (s) {
             xq::utils::free(s);

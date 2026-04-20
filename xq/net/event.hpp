@@ -11,6 +11,7 @@ namespace xq::net {
 class Reactor;
 class Session;
 class Listener;
+class Conn;
 
 
 struct Context {
@@ -24,10 +25,25 @@ struct Context {
 
     int
     send(const char* data, size_t len) noexcept;
-};
+}; // struct Context;
 
 
-class IService {
+class IConnEvent {
+public:
+    virtual int
+    on_connected(Conn* c) = 0;
+
+
+    virtual void
+    on_disconnected(Conn* c) = 0;
+
+
+    virtual int
+    on_data(Conn* c, const char* data, size_t len) = 0;
+}; // class IConnEvent;
+
+
+class IListnerEvent {
 public:
     virtual void
     on_start(Listener* l) = 0;
@@ -47,7 +63,7 @@ public:
 
     virtual int
     on_data(Context* ctx, const char* data, size_t len) = 0;
-}; // class IService;
+}; // class IListnerEvent;
 
 
 struct Event {
