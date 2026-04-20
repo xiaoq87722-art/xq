@@ -148,18 +148,22 @@ xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
     while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
             switch (evs[i].cmd) {
-            case Event::Command::Accept:
-                on_accept(evs[i].data);
-                break;
+                case Event::Command::Accept: {
+                    on_accept(evs[i].data);
+                } break;
 
-            case Event::Command::Send:
-                on_send(evs[i].data);
-                break;
+                case Event::Command::Send: {
+                    on_send(evs[i].data);
+                } break;
 
-            case Event::Command::Broadcast:
-                on_broadcast(evs[i].data);
-                break;
-            }
+                case Event::Command::Broadcast: {
+                    on_broadcast(evs[i].data);
+                } break;
+
+                default: {
+                    xFATAL("Reactor 不应处理 Event::Command {}", (int)evs[i].cmd);
+                } break;
+            } // switch (evs[i].cmd);
         }
     } // while (!evque_.empty());
 }
