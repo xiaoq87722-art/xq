@@ -58,7 +58,6 @@ xq::net::Reactor::start() noexcept {
     init_epoll_event(&epfd_, &evfd_, &ea);
 
     const int MAX_EVENT = Conf::instance()->per_max_conn();
-    ::epoll_event ev{};
     ::epoll_event* events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) * MAX_EVENT, true);
 
     int nfds, err, i;
