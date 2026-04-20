@@ -80,14 +80,18 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
             auto ea = (EpollArg*)ev.data.ptr;
 
             switch (ea->type) {
-            case EpollArg::Type::Listener:
-                listener_handle(ea);
-                break;
+                case EpollArg::Type::Listener: {
+                    listener_handle(ea);
+                } break;
             
-            case EpollArg::Type::Event:
-                event_handle(ea);
-                break;
-            }  
+                case EpollArg::Type::Event: {
+                    event_handle(ea);
+                } break;
+
+                default: {
+                    xFATAL("Acceptor 不应处理 EpollArg::Type {}", (int)ea->type);
+                } break;
+            } // switch (ea->type);
         }
 
         if (!running()) {

@@ -59,17 +59,21 @@ xq::net::ConnRecver::run(std::initializer_list<Conn::Ptr> conns) noexcept {
         tnow_ = xq::utils::systime();
         for (int i = 0; i < nfds; ++i) {
             auto& ev = events[i];
-            auto arg = (EpollArg*)ev.data.ptr;
+            auto ea = (EpollArg*)ev.data.ptr;
 
-            switch (arg->type) {
-            case EpollArg::Type::Conn:
-                conn_handle(arg);
-                break;
+            switch (ea->type) {
+                case EpollArg::Type::Conn: {
+                    conn_handle(ea);
+                } break;
 
-            case EpollArg::Type::Event:
-                event_handle(arg);
-                break;
-            }
+                case EpollArg::Type::Event: {
+                    event_handle(ea);
+                } break;
+
+                default: {
+                    xFATAL("ConnRecver 不应处理 EpollArg::Type {}", (int)ea->type);
+                } break;
+            } // switch (ea->type);
         }
 
         if (!running()) {
