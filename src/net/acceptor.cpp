@@ -31,9 +31,9 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         return;
     }
 
-    uint32_t nr = std::thread::hardware_concurrency();
-    if (nr > 2) {
-        nr -= 2;
+    int64_t nr = std::thread::hardware_concurrency() - 2;
+    if (nr < 1) {
+        nr = 1;
     }
 
     xq::utils::regist_signal(signal_handle, { SIGINT, SIGTERM });
