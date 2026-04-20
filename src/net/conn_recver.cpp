@@ -5,7 +5,7 @@
 
 
 void
-xq::net::ConnRecver::run(std::initializer_list<Conn*> conns) noexcept {
+xq::net::ConnRecver::run(std::initializer_list<Conn::Ptr> conns) noexcept {
     int state_stopped = STATE_STOPPED;
     if (!state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
         return;
@@ -37,12 +37,12 @@ xq::net::ConnRecver::run(std::initializer_list<Conn*> conns) noexcept {
 
     for (auto& conn : conns) {
         if (conn) {
-            conn->init(this);
             add_conn(conn);
         }
     }
 
     int nfds, err;
+    time_t last_check_time = 0;
     state_.store(STATE_RUNNING);
 
     while (1) {
@@ -75,19 +75,14 @@ xq::net::ConnRecver::run(std::initializer_list<Conn*> conns) noexcept {
         if (!running()) {
             break;
         }
+
+        if (last_check_time + 5 <= tnow_) {
+            // TODO: 心跳
+            last_check_time = tnow_;
+        }
     }
 
     state_.store(STATE_STOPPING);
-
-    for (auto itr = conns_.begin(); itr != conns_.end(); ++itr) {
-        Conn* conn = itr->second;
-        if (conn) {
-            conn->close();
-            xq::utils::free(conn);
-        }
-    }
-    conns_.clear();
-
     for (auto& w: workers_) {
         w->stop();
     }
@@ -104,6 +99,8 @@ xq::net::ConnRecver::run(std::initializer_list<Conn*> conns) noexcept {
     sender.stop();
     sender.join();
 
+    conns_.clear();
+
     state_.store(STATE_STOPPED);
 }
 
@@ -111,7 +108,20 @@ xq::net::ConnRecver::run(std::initializer_list<Conn*> conns) noexcept {
 void
 xq::net::ConnRecver::conn_handle(EpollArg* ea) noexcept {
     auto conn = (Conn*)ea->data;
-    // TODO: conn->read()
+    auto itr = conns_.find(conn->fd());
+    if (itr == conns_.end()) {
+        return;
+    }
+
+    void* buf = xq::utils::malloc(RBUF_MAX);
+    int n = conn->read(buf, RBUF_MAX);
+    if (n <= 0) {
+        remove_conn(conn->fd());
+        xq::utils::free(buf);
+        return;
+    }
+
+    workers_[conn->fd() % workers_.size()]->post({itr->second, buf, n});
 }
 
 
@@ -134,7 +144,7 @@ xq::net::ConnRecver::event_handle(EpollArg* _) noexcept {
 
 
 void
-xq::net::ConnRecver::add_conn(Conn* conn) noexcept {
+xq::net::ConnRecver::add_conn(Conn::Ptr conn) noexcept {
     epoll_event ev;
     ev.data.ptr = conn->ea();
     ev.events = EPOLLIN | EPOLLET;
@@ -151,6 +161,5 @@ xq::net::ConnRecver::remove_conn(SOCKET fd) noexcept {
         ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
         conn->close();
         conns_.erase(itr);
-        xq::utils::free(conn);
     }
 }

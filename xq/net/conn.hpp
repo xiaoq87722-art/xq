@@ -19,10 +19,12 @@ class Conn {
 
 
 public:
-    static Conn*
-    create() noexcept {
-        auto p = xq::utils::malloc(sizeof(Conn));
-        return new (p) Conn;
+    typedef std::shared_ptr<Conn> Ptr;
+
+
+    static Conn::Ptr
+    create(ConnRecver* r) noexcept {
+        return Ptr(new Conn(r));
     }
 
 
@@ -49,6 +51,12 @@ public:
     }
 
 
+    void
+    set_service(IConnEvent* service) noexcept {
+        service_ = service;
+    }
+
+
     EpollArg*
     ea() noexcept {
         return &ea_;
@@ -59,14 +67,6 @@ public:
     connect(const char* host) noexcept {
         fd_ = xq::net::tcp_connect(host);
         return fd_ == INVALID_SOCKET ? -1 : 0;
-    }
-
-
-    void
-    init(ConnRecver* c) noexcept {
-        recver_ = c;
-        ea_.type = EpollArg::Type::Conn;
-        ea_.data = this;
     }
 
 
@@ -88,7 +88,11 @@ public:
 
 
 private:
-    Conn() noexcept {}
+    Conn(ConnRecver* r) noexcept
+        : recver_(r) {
+        ea_.type = EpollArg::Type::Conn;
+        ea_.data = this;
+    }
 
 
     SOCKET fd_ { INVALID_SOCKET };

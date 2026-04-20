@@ -17,7 +17,6 @@ xq::net::ConnWorker::start() noexcept {
 
     const auto INTERVAL = Conf::instance()->hb_check_interval();
     int nfds, err, i;
-    time_t last_check_time = 0;
     state_.store(STATE_RUNNING);
 
     while (1) {
@@ -32,12 +31,9 @@ xq::net::ConnWorker::start() noexcept {
             break;
         }
 
-        tnow_ = xq::utils::systime();
-
         for (i = 0; i < nfds; ++i) {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
-
             ASSERT(ea->type == EpollArg::Type::Event, "ea->type != EpollArg::Type::Event");
             event_handle(ea);
         }
@@ -47,16 +43,22 @@ xq::net::ConnWorker::start() noexcept {
         }
     }
 
+    int n;
+    Element es[16];
+    while (n = evque_.try_dequeue_bulk(es, 16), n > 0) {
+        for (i = 0; i < n; ++i) {
+            auto& e = es[i];
+            xq::utils::free(e.data);
+        }
+    }
+
     release_epoll_event(&epfd_, &evfd_);
     state_.store(STATE_STOPPED);
 }
 
 
 void
-xq::net::ConnWorker::event_handle(EpollArg* ea) noexcept {
-    auto ev = (Event*)ea->data;
-    ASSERT(ev->cmd == Event::Command::Proc, "ev->cmd != Event::Command::Send");
-
+xq::net::ConnWorker::event_handle(EpollArg* _) noexcept {
     int n, err = 0;
     uint64_t val;
 
@@ -72,11 +74,13 @@ xq::net::ConnWorker::event_handle(EpollArg* ea) noexcept {
         }
     }
 
+    processing_.store(false);
+
     Element es[16];
     while (n = evque_.try_dequeue_bulk(es, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
             auto& e = es[i];
-            e.conn->service()->on_data(e.conn, (char*)e.data, e.len);
+            e.conn->service()->on_data(e.conn.get(), (char*)e.data, e.len);
             xq::utils::free(e.data);
         }
     }

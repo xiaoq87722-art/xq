@@ -30,7 +30,7 @@ public:
     }
 
     void
-    run(std::initializer_list<Conn*> conns) noexcept;
+    run(std::initializer_list<Conn::Ptr> conns) noexcept;
 
 
     void
@@ -45,10 +45,6 @@ public:
 
 private:
     void
-    run_sender() noexcept;
-
-
-    void
     conn_handle(EpollArg* ea) noexcept;
 
 
@@ -57,7 +53,7 @@ private:
 
 
     void
-    add_conn(Conn* conn) noexcept;
+    add_conn(Conn::Ptr conn) noexcept;
 
 
     void
@@ -67,10 +63,9 @@ private:
     SOCKET epfd_ { INVALID_SOCKET };
     SOCKET evfd_ { INVALID_SOCKET };
     time_t tnow_ { 0 };
-    std::thread tsend_;
     std::atomic<int> state_ { STATE_STOPPED };
     std::vector<ConnWorker*> workers_ {};
-    std::unordered_map<SOCKET, Conn*> conns_;
+    std::unordered_map<SOCKET, Conn::Ptr> conns_;
 }; // class Connector;
 
 

@@ -21,9 +21,9 @@ class ConnWorker {
 
 
     struct Element {
-        Conn* conn;
+        Conn::Ptr conn;
         void* data;
-        size_t len;
+        int len;
     };
 
 
@@ -39,6 +39,12 @@ public:
     bool
     running() const noexcept {
         return state_.load() == STATE_RUNNING;
+    }
+
+
+    bool
+    processing() const noexcept {
+        return processing_.load();
     }
 
 
@@ -77,7 +83,11 @@ public:
 
         constexpr uint64_t event = 1;
         ASSERT(evque_.enqueue(std::move(e)), "队列已满");
-        ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+
+        bool expected = false;
+        if (processing_.compare_exchange_strong(expected, true)) {
+            ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+        }
     }
 
 
@@ -92,15 +102,14 @@ private:
 
     SOCKET epfd_ { INVALID_SOCKET };
     SOCKET evfd_ { INVALID_SOCKET };
-    time_t tnow_ { 0 };
     std::atomic<int> state_ { STATE_STOPPED };
+    std::atomic<bool> processing_ { false };
     std::thread t_;
     xq::utils::SPSC<Element> evque_ {};
 }; // class Worker;
 
 
 } // namespace xq::net
-
 
 
 #endif // __XQ_NET_CONN_WORKER_HPP__

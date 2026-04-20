@@ -72,7 +72,6 @@ struct Event {
         Send = 2,      // 有发送数据到达 Reactor
         Connect = 3,   // Conn 连接成功
         Broadcast = 4, // Acceptor 广播
-        Proc = 5,      // Connector 有数据到达需要处理
     };
 
 
