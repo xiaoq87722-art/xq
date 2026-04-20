@@ -83,18 +83,26 @@ xq::net::Reactor::start() noexcept {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
 
-            if (ea->type == EpollArg::Type::Event) {
-                event_handle(ea);
-            } else {
-                if ((ev.events & (EPOLLERR | EPOLLHUP)) || ev.events & EPOLLIN) {
-                    session_recv_handle(ea);
-                }
+            switch (ea->type) {
+                case EpollArg::Type::Event: {
+                    event_handle(ea);
+                } break;
 
-                auto s = (Session*)ea->data;
-                if ((ev.events & EPOLLOUT) && s->fd() != INVALID_SOCKET) {
-                    session_send_handle(ea);
-                }
-            }
+                case EpollArg::Type::Session: {
+                    if ((ev.events & (EPOLLERR | EPOLLHUP)) || ev.events & EPOLLIN) {
+                        session_recv_handle(ea);
+                    }
+
+                    auto s = (Session*)ea->data;
+                    if ((ev.events & EPOLLOUT) && s->valid()) {
+                        session_send_handle(ea);
+                    }
+                } break;
+
+                default: {
+                    xFATAL("Reactor 不应处理 EpollArg::Type {}", (int)ea->type);
+                } break;
+            } // switch (ea->type);
         }
 
         if (!running()) {
@@ -130,6 +138,7 @@ xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
             int err = errno;
             if (err != EAGAIN && err != EWOULDBLOCK) {
                 xERROR("read failed: [{}] {}", err, ::strerror(err));
+                return;
             }
             break;
         }

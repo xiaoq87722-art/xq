@@ -50,6 +50,12 @@ public:
     release() noexcept;
 
 
+    bool
+    valid() const noexcept {
+        return fd_ != INVALID_SOCKET;
+    }
+
+
     SOCKET
     fd() noexcept {
         return fd_;
