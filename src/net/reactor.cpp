@@ -225,7 +225,9 @@ xq::net::Reactor::on_accept(void* params) noexcept {
     ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
 
     add_session(fd, s);
-    arg->l->service()->on_connected(s);
+    if (arg->l->service()->on_connected(s)) {
+        remove_session(fd);
+    }
     xq::utils::free(params);
 }
 
