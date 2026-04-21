@@ -56,6 +56,12 @@ public:
     }
 
 
+    bool
+    closed_by_server() const noexcept {
+        return cbs_;
+    }
+
+
     Listener*
     listener() noexcept {
         return listener_;
@@ -109,6 +115,7 @@ private:
     }
 
 
+    bool cbs_ { false };
     SOCKET fd_ { INVALID_SOCKET };
     time_t last_active_ { 0 };
     Listener* listener_ { nullptr };

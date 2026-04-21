@@ -81,6 +81,12 @@ private:
 
 
     SOCKET epfd_ { INVALID_SOCKET };
+
+    /**
+     * 事件 fd
+     * 
+     * 包函事件: stop
+     */
     SOCKET evfd_ { INVALID_SOCKET };
     std::atomic<int> state_ { STATE_STOPPED };
     std::vector<Reactor*> reactors_;

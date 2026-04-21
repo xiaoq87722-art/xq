@@ -119,11 +119,11 @@ xq::net::Reactor::start() noexcept {
         }
     }
 
-    for (auto& [fd, s] : sessions_) {
-        s->release();
+    while (!sessions_.empty()) {
+        auto itr = sessions_.begin();
+        remove_session(itr->first);
     }
 
-    sessions_.clear();
     release_epoll_event(&epfd_, &evfd_);
     
     xq::utils::free(events);
@@ -153,21 +153,21 @@ xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
     Event evs[16];
     while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
-            switch (evs[i].cmd) {
-                case Event::Command::Accept: {
+            switch (evs[i].type) {
+                case Event::Type::Accept: {
                     on_accept(evs[i].data);
                 } break;
 
-                case Event::Command::Send: {
+                case Event::Type::Send: {
                     on_send(evs[i].data);
                 } break;
 
-                case Event::Command::Broadcast: {
+                case Event::Type::Broadcast: {
                     on_broadcast(evs[i].data);
                 } break;
 
                 default: {
-                    xFATAL("Reactor 不应处理 Event::Command {}", (int)evs[i].cmd);
+                    xFATAL("Reactor 不应处理 Event::Command {}", (int)evs[i].type);
                 } break;
             } // switch (evs[i].cmd);
         }
@@ -183,9 +183,11 @@ xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
     if (n > 0) {
         Context ctx(this, s);
 
-        if (!s->listener()->service()->on_data(&ctx, s->rbuf(), n)) {
+        if (s->listener()->service()->on_data(&ctx, s->rbuf(), n) == 0) {
             return;
         }
+
+        s->cbs_ = true;
     }
 
     if (n < 0) {
@@ -263,6 +265,7 @@ xq::net::Reactor::timer_handle() noexcept {
 
         if (s->is_timeout(tnow_)) {
             SOCKET fd = itr->first;
+            s->cbs_ = true;
             ++itr;
             remove_session(fd);
         } else {

@@ -41,7 +41,7 @@ xq::net::Conn::send(const char* data, size_t len) noexcept {
 
         bool expected = false;
         if (sending_.compare_exchange_strong(expected, true)) {
-            connector_->sender()->post({ Event::Command::Send, this });
+            connector_->sender()->post({ Event::Type::Send, this });
         }
 
         return 0;

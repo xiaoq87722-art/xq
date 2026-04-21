@@ -17,7 +17,7 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
     }
 
     sending_.store(false, std::memory_order_relaxed);
-    wait_out_ = false;
+    cbs_ = wait_out_ = false;
 
     sbuf_.clear();
         
@@ -94,6 +94,10 @@ xq::net::Session::recv() noexcept {
 
 int
 xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept {
+    if (!valid()) {
+        return -1;
+    }
+
     if (r != reactor_) {
         xq::utils::SendBuf sb;
         sb.len = len;
@@ -103,7 +107,7 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
 
         bool expected = false;
         if (sending_.compare_exchange_strong(expected, true)) {
-            reactor_->post({ Event::Command::Send, this });
+            reactor_->post({ Event::Type::Send, this });
         }
 
         return 0;

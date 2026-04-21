@@ -143,7 +143,7 @@ xq::net::Acceptor::broadcast(const char* data, size_t len) noexcept {
         EventBroadcastParam* arg = (EventBroadcastParam*)xq::utils::malloc(sizeof(EventBroadcastParam) + len);
         ::memcpy(arg->data, data, len);
         arg->len = len;
-        r->post({ Event::Command::Broadcast, arg });
+        r->post({ Event::Type::Broadcast, arg });
     }
 
     return 0;
@@ -197,6 +197,6 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
         arg->l = l;
 
         auto r = next_reactor(reactors_);
-        r->post(Event{ Event::Command::Accept, arg });
+        r->post(Event{ Event::Type::Accept, arg });
     }   
 }

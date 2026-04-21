@@ -68,7 +68,7 @@ xq::net::Sender::event_handle(EpollArg* _) noexcept {
     while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
             auto& ev = evs[i];
-            ASSERT(ev.cmd == Event::Command::Send, "e.cmd != Event::Command::Send");
+            ASSERT(ev.type == Event::Type::Send, "e.cmd != Event::Command::Send");
             // conn->send(e.data, e.len);
         }
     }

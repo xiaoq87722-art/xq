@@ -67,7 +67,7 @@ public:
 
 
 struct Event {
-    enum class Command {
+    enum class Type {
         Accept = 1,    // 有新的连接到达 Acceptor
         Send = 2,      // 有发送数据到达 Reactor
         Connect = 3,   // Conn 连接成功
@@ -75,7 +75,7 @@ struct Event {
     };
 
 
-    Command cmd;
+    Type type;
     void* data;
 };
 
