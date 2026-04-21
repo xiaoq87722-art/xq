@@ -17,15 +17,15 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
     }
 
     sending_.store(false, std::memory_order_relaxed);
-    can_send_ = true;
+    wait_out_ = false;
 
     sbuf_.clear();
         
     int n;
-    SendBuf sbufs[16];
+    xq::utils::SendBuf sbufs[16];
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
         for (int i = 0; i < n; ++i) {
-            const SendBuf& sbuf = sbufs[i];
+            const xq::utils::SendBuf& sbuf = sbufs[i];
             xq::utils::free(sbuf.data);
         }
     }
@@ -55,10 +55,10 @@ xq::net::Session::release() noexcept {
     sbuf_.clear();
 
     int n;
-    SendBuf sbufs[16];
+    xq::utils::SendBuf sbufs[16];
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
         for (int i = 0; i < n; ++i) {
-            const SendBuf& sbuf = sbufs[i];
+            auto& sbuf = sbufs[i];
             xq::utils::free(sbuf.data);
         }
     }
@@ -95,7 +95,7 @@ xq::net::Session::recv() noexcept {
 int
 xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept {
     if (r != reactor_) {
-        SendBuf sb;
+        xq::utils::SendBuf sb;
         sb.len = len;
         sb.data = (char*)xq::utils::malloc(len);
         ::memcpy(sb.data, data, len);
@@ -109,8 +109,8 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
         return 0;
     }
 
-    if (!can_send_ && data && len > 0) {
-        SendBuf sb;
+    if (wait_out_ && data && len > 0) {
+        xq::utils::SendBuf sb;
         sb.len = len;
         sb.data = (char*)xq::utils::malloc(len);
         ::memcpy(sb.data, data, len);
@@ -123,10 +123,10 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
     sending_.store(false, std::memory_order_release);
 
     ssize_t n;
-    SendBuf sbufs[16];
+    xq::utils::SendBuf sbufs[16];
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
         for (int i = 0; i < n; ++i) {
-            sbuf_.write(sbufs[i].data, sbufs[i].len);
+            ASSERT(sbuf_.write(sbufs[i].data, sbufs[i].len) > 0, "RingBuf 写入失败，剩余空间不足");
             xq::utils::free(sbufs[i].data);
         }
     }
@@ -147,7 +147,7 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
                 xERROR("send failed: [{}] {}", err, ::strerror(err));
                 return -err;
             }
-            can_send_ = false;
+            wait_out_ = true;
             break;
         }
         sbuf_.read_consume(sent);
@@ -158,6 +158,8 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
         ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
         ev.data.ptr = &ea_;
         ASSERT(!::epoll_ctl(reactor_->epfd(), EPOLL_CTL_MOD, fd_, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+    } else {
+        wait_out_ = false;
     }
 
     return total - (ssize_t)sbuf_.readable();

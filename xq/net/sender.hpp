@@ -27,6 +27,17 @@ public:
     }
 
 
+    SOCKET
+    epfd() const noexcept {
+        return epfd_;
+    }
+
+    std::thread::id
+    tid() const noexcept {
+        return t_.get_id();
+    }
+
+
     void
     run() noexcept {
         int state_stopped = STATE_STOPPED;

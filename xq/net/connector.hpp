@@ -4,6 +4,7 @@
 
 #include "xq/net/event.hpp"
 #include "xq/net/processor.hpp"
+#include "xq/net/sender.hpp"
 #include "xq/utils/spsc.hpp"
 
 
@@ -27,6 +28,12 @@ public:
     bool
     running() const noexcept {
         return state_.load() == STATE_RUNNING;
+    }
+
+
+    Sender*
+    sender() noexcept {
+        return &sender_;
     }
 
     void
@@ -64,6 +71,7 @@ private:
     SOCKET evfd_ { INVALID_SOCKET };
     time_t tnow_ { 0 };
     std::atomic<int> state_ { STATE_STOPPED };
+    Sender sender_;
     std::vector<Processor*> workers_ {};
     std::unordered_map<SOCKET, Conn::Ptr> conns_;
 }; // class Connector;

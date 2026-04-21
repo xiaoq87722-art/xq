@@ -3,6 +3,8 @@
 
 
 #include "xq/net/event.hpp"
+#include "xq/utils/mpsc.hpp"
+#include "xq/utils/ring_buf.hpp"
 
 
 namespace xq::net {
@@ -41,7 +43,7 @@ public:
 
     Connector*
     recver() noexcept {
-        return recver_;
+        return connector_;
     }
 
 
@@ -80,25 +82,29 @@ public:
 
 
     int
-    read(void* data, size_t dlen) noexcept;
+    recv(void* data, size_t dlen) noexcept;
 
 
     int
-    write(const void* data, size_t dlen) noexcept;
+    send(const char* data, size_t dlen) noexcept;
 
 
 private:
     Conn(Connector* r) noexcept
-        : recver_(r) {
+        : connector_(r) {
         ea_.type = EpollArg::Type::Conn;
         ea_.data = this;
     }
 
 
+    bool wait_out_ { false };
     SOCKET fd_ { INVALID_SOCKET };
-    Connector* recver_ { nullptr };
+    Connector* connector_ { nullptr };
     IConnEvent* service_ { nullptr };
+    std::atomic<bool> sending_ { false };
     EpollArg ea_;
+    xq::utils::RingBuf sbuf_ { RBUF_MAX };
+    xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 4096 };
 }; // class Conn;
 
 

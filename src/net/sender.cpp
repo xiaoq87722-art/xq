@@ -19,6 +19,15 @@ xq::net::Sender::start() noexcept {
 
     while (1) {
         nfds = ::epoll_wait(epfd_, events, MAX_EVENT, INTERVAL);
+        if (nfds < 0) {
+            err = errno;
+            if (err == EINTR) {
+                continue;
+            }
+            xERROR("epoll_wait failed: [{}] {}", err, ::strerror(err));
+            break;
+        }
+
         for (i = 0; i < nfds; ++i) {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
@@ -55,12 +64,12 @@ xq::net::Sender::event_handle(EpollArg* _) noexcept {
 
     processing_.store(false);
 
-    Event es[16];
-    while (n = evque_.try_dequeue_bulk(es, 16), n > 0) {
+    Event evs[16];
+    while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
-            auto& e = es[i];
-            ASSERT(e.cmd == Event::Command::Send, "e.cmd != Event::Command::Send");
-            // TODO: conn->write();
+            auto& ev = evs[i];
+            ASSERT(ev.cmd == Event::Command::Send, "e.cmd != Event::Command::Send");
+            // conn->send(e.data, e.len);
         }
     }
 }

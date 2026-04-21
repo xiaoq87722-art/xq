@@ -46,7 +46,11 @@ xq::net::Reactor::post(Event ev) noexcept {
 
     constexpr uint64_t event = 1;
     ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
-    ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+
+    bool processing = false;
+    if (processing_.compare_exchange_strong(processing, true)) {
+        ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+    }   
 }
 
 
@@ -144,6 +148,8 @@ xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
         }
     }
 
+    processing_.store(false);
+
     Event evs[16];
     while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
@@ -194,7 +200,7 @@ void
 xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
     int res;
-    s->can_send_ = true;
+
     if (res = s->send(this, nullptr, 0), res < 0) {
         xERROR("send failed for session [{}]: {}", s->to_string(), -res);
     }

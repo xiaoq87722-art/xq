@@ -11,8 +11,7 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
         return;
     }
 
-    Sender sender;
-    sender.run();
+    sender_.run();
 
     int64_t nr = std::thread::hardware_concurrency() - 3;
     if (nr < 1) {
@@ -100,8 +99,8 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
     release_epoll_event(&epfd_, &evfd_);
     xq::utils::free(events);
 
-    sender.stop();
-    sender.join();
+    sender_.stop();
+    sender_.join();
 
     conns_.clear();
 
@@ -118,7 +117,7 @@ xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
     }
 
     void* buf = xq::utils::malloc(RBUF_MAX);
-    int n = conn->read(buf, RBUF_MAX);
+    int n = conn->recv(buf, RBUF_MAX);
     if (n <= 0) {
         remove_conn(conn->fd());
         xq::utils::free(buf);
@@ -149,10 +148,15 @@ xq::net::Connector::event_handle(EpollArg* _) noexcept {
 
 void
 xq::net::Connector::add_conn(Conn::Ptr conn) noexcept {
-    epoll_event ev;
-    ev.data.ptr = conn->ea();
-    ev.events = EPOLLIN | EPOLLET;
-    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, conn->fd(), &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+    ::epoll_event evr;
+    evr.data.ptr = conn->ea();
+    evr.events = EPOLLIN | EPOLLET;
+    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, conn->fd(), &evr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+
+    ::epoll_event evw;
+    evw.data.ptr = conn->ea();
+    evw.events = EPOLLET | EPOLLOUT;
+    ASSERT(!::epoll_ctl(sender_.epfd(), EPOLL_CTL_ADD, conn->fd(), &evw), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
     conns_.insert({ conn->fd(), conn });
 }
 

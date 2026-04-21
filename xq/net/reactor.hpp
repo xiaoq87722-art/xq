@@ -128,6 +128,7 @@ private:
     SOCKET evfd_ { INVALID_SOCKET };
     time_t tnow_ { 0 };
     std::atomic<int> state_ { STATE_STOPPED };
+    std::atomic<bool> processing_ { false };
     std::thread t_ {};
     xq::utils::MPSC<Event> evque_ { 8, 1024 };
     std::unordered_map<SOCKET, Session*> sessions_;

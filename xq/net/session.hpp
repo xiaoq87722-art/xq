@@ -12,12 +12,6 @@
 namespace xq::net {
 
 
-struct SendBuf {
-    int len;
-    char* data;
-};
-
-
 class Reactor;
 class Listener;
 
@@ -122,11 +116,11 @@ private:
     EpollArg ea_ {};
     sockaddr_storage addr_ {};
 
-    bool can_send_ { true };
+    bool wait_out_ { false };
     std::atomic<bool> sending_ { false };
     xq::utils::RingBuf sbuf_ { WBUF_MAX };
     
-    xq::utils::MPSC<SendBuf> sque_ { 4, 32 };
+    xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 32 };
     char rbuf_[RBUF_MAX] { 0 };
 }; // class Session;
 

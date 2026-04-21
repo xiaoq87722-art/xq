@@ -18,6 +18,12 @@
 namespace xq::utils {
 
 
+struct SendBuf {
+    int len;
+    char* data;
+}; // struct SendBuf;
+
+
 class RingBuf {
     // 禁止拷贝和移动
     RingBuf(const RingBuf&) = delete;
