@@ -121,6 +121,7 @@ xq::net::Reactor::start() noexcept {
 
     while (!sessions_.empty()) {
         auto itr = sessions_.begin();
+        itr->second->cbs_ = true;
         remove_session(itr->first);
     }
 
@@ -186,8 +187,6 @@ xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
         if (s->listener()->service()->on_data(&ctx, s->rbuf(), n) == 0) {
             return;
         }
-
-        s->cbs_ = true;
     }
 
     if (n < 0) {
