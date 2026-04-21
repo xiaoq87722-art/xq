@@ -6,6 +6,12 @@ namespace xq::net {
 
 
 class Conf {
+    Conf(const Conf&) = delete;
+    Conf& operator=(const Conf&) = delete;
+    Conf(Conf&&) = delete;
+    Conf& operator=(Conf&&) = delete;
+
+
 public:
     static Conf*
     instance() noexcept {
@@ -46,7 +52,7 @@ public:
 
 
 private:
-    Conf() {}
+    Conf() noexcept {}
 
 
     int rcv_buf_           { 1024 * 256 };

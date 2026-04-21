@@ -14,7 +14,7 @@ class Acceptor;
 
 class Listener {
 public:
-    Listener(IListnerEvent* service, const char* endpoint, uint16_t port)
+    Listener(IListnerEvent* service, const char* endpoint, uint16_t port) noexcept
         : service_(service) {
         ASSERT(endpoint && port > 0, "params is invalid");
         host_ = std::format("{}:{}", endpoint, port);
@@ -23,7 +23,8 @@ public:
     }
 
 
-    ~Listener() {}
+    ~Listener() noexcept
+    {}
 
 
     std::string
@@ -60,7 +61,7 @@ public:
 
 
     void
-    stop() {
+    stop() noexcept {
         if (fd_ != INVALID_SOCKET) {
             service_->on_stop(this);
             ::close(fd_);

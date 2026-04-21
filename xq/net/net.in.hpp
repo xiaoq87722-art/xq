@@ -30,10 +30,13 @@ constexpr int STATE_STOPPING = 3; // 正在停止
 namespace xq::net {
 
 
+/**
+ * @brief 用于 epoll_event.data.ptr
+ */
 struct EpollArg {
     enum class Type {
-        Listener = 1,
-        Event = 2,
+        Event = 1,
+        Listener = 2,
         Session = 3,
         Conn = 4,
     };
@@ -52,6 +55,11 @@ SOCKET
 tcp_listen(const char* endpoint, int rcv_buf, int snd_buf) noexcept;
 
 
+/**
+ * @brief 获取 TCP 连接套接字
+ * 
+ * @return 成功返回 client fd, 否则返回 INVALID_SOCKET
+ */
 SOCKET
 tcp_connect(const char* host) noexcept;
 
@@ -112,10 +120,16 @@ sockaddr_to_string(const sockaddr* addr) noexcept {
 }
 
 
+/**
+ * @brief 初始化 epoll fd & event fd
+ */
 void
 init_epoll_event(SOCKET* epfd, SOCKET* evfd, EpollArg* ea) noexcept;
 
 
+/**
+ * @brief 释放 epoll fd & event fd
+ */
 void
 release_epoll_event(SOCKET* epfd, SOCKET* evfd) noexcept;
 

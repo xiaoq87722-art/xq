@@ -36,8 +36,10 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         nr = 1;
     }
 
+    // Step 1, 注册信号事件
     xq::utils::regist_signal(signal_handle, { SIGINT, SIGTERM });
 
+    // Step 2, 启动 reactor 线程
     for (uint32_t i = 0; i < nr; ++i) {
         Reactor* r = new Reactor();
         r->run();
@@ -47,11 +49,13 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         }
     }
 
+    // Step 3, 初始化 epoll 和 eventfd
     EpollArg ea { EpollArg::Type::Event, this };
     init_epoll_event(&epfd_, &evfd_, &ea);
 
+    // Step 4, 开启监听
     constexpr int MAX_EVENT = 16;
-    ::epoll_event ev{}, events[MAX_EVENT];
+    ::epoll_event ev, events[MAX_EVENT];
 
     for (auto l: listeners) {
         l->start(this);
@@ -63,7 +67,8 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     int err, nfds, i;
     state_.store(STATE_RUNNING);
 
-    while (1) {
+    // Step 5， IO LOOP
+    while (running()) {
         err = 0;
         nfds = ::epoll_wait(epfd_, events, MAX_EVENT, -1);
         if (nfds < 0) {
@@ -79,6 +84,11 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
 
+            // ---------------------------
+            // 在 acceptor 的 epoll 中 EpollArg 只有两种类型
+            //  * Listener: 用于监听
+            //  * Event: 自定义事件
+            // ---------------------------
             switch (ea->type) {
                 case EpollArg::Type::Listener: {
                     listener_handle(ea);
@@ -93,16 +103,18 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
                 } break;
             } // switch (ea->type);
         }
-
-        if (!running()) {
-            break;
-        }
     }
 
+    // Step 6, 停止监听
     for (auto l: listeners) {
         l->stop();
     }
 
+    // Step 7, 释放 epoll 和 eventfd
+    release_epoll_event(&epfd_, &evfd_);
+
+    // Step 8, 停止 reactor
+    state_.store(STATE_STOPPING);
     for (auto& r: reactors_) {
         r->stop();
     }
@@ -114,6 +126,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
 
     reactors_.clear();
 
+    // Step 9: 清理 sessions
     for (i = 0; i < MAX_CONN; ++i) {
         auto s = sessions_[i];
         if (s) {
@@ -122,7 +135,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         }
     }
 
-    release_epoll_event(&epfd_, &evfd_);
     state_.store(STATE_STOPPED);
 }
 
@@ -152,6 +164,10 @@ xq::net::Acceptor::broadcast(const char* data, size_t len) noexcept {
 
 void
 xq::net::Acceptor::event_handle(EpollArg* ea) noexcept {
+    // -------------------------------------------------------
+    //  Acceptor::event_handle 只处理停止消息.
+    //    在停止的时候已经修改了 state_ 字段, 所以在这里只需要从 eventfd 中读完数据即可.
+    // -------------------------------------------------------
     int n;
     uint64_t val;
 
@@ -196,7 +212,6 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
         arg->fd = cfd;
         arg->l = l;
 
-        auto r = next_reactor(reactors_);
-        r->post(Event{ Event::Type::Accept, arg });
+        next_reactor(reactors_)->post(Event{ Event::Type::Accept, arg });
     }   
 }

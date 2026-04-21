@@ -24,6 +24,7 @@ class Acceptor {
 
 
 public:
+    /** 最大连接数 */
     static constexpr int MAX_CONN = 100000;
 
 
@@ -38,38 +39,38 @@ public:
     {}
 
 
+    /** 是否处于运行中 */
     bool
     running() const noexcept {
         return state_ == STATE_RUNNING;
     }
 
 
+    /** 获取 session */
     Session*
     (&sessions() noexcept)[MAX_CONN] {
         return sessions_;
     }
 
 
-    SOCKET
-    epfd() noexcept {
-        return epfd_;
-    }
-
-
+    /** 运行 */
     void
     run(const std::vector<Listener*>& listeners) noexcept;
 
 
+    /** 停止 */
     void
     stop() noexcept;
 
 
+    /** 广播 */
     int
     broadcast(const char* data, size_t len) noexcept;
 
 
 private:
-    explicit Acceptor() noexcept {}
+    explicit Acceptor() noexcept
+    {}
 
 
     void
@@ -81,12 +82,6 @@ private:
 
 
     SOCKET epfd_ { INVALID_SOCKET };
-
-    /**
-     * 事件 fd
-     * 
-     * 包函事件: stop
-     */
     SOCKET evfd_ { INVALID_SOCKET };
     std::atomic<int> state_ { STATE_STOPPED };
     std::vector<Reactor*> reactors_;
