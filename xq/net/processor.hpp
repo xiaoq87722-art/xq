@@ -13,11 +13,11 @@
 namespace xq::net {
 
 
-class ConnWorker {
-    ConnWorker(const ConnWorker&) = delete;
-    ConnWorker& operator=(const ConnWorker&) = delete;
-    ConnWorker(ConnWorker&&) = delete;
-    ConnWorker& operator=(ConnWorker&&) = delete;
+class Processor {
+    Processor(const Processor&) = delete;
+    Processor& operator=(const Processor&) = delete;
+    Processor(Processor&&) = delete;
+    Processor& operator=(Processor&&) = delete;
 
 
     struct Element {
@@ -28,11 +28,11 @@ class ConnWorker {
 
 
 public:
-    ConnWorker() noexcept
+    Processor() noexcept
     {}
 
 
-    ~ConnWorker() noexcept
+    ~Processor() noexcept
     {}
 
 
@@ -52,7 +52,7 @@ public:
     run() noexcept {
         int state_stopped = STATE_STOPPED;
         if (state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
-            t_ = std::thread(&ConnWorker::start, this);
+            t_ = std::thread(&Processor::start, this);
         }
     }
 

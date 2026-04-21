@@ -8,7 +8,7 @@
 namespace xq::net {
 
 
-class ConnRecver;
+class Connector;
 
 
 class Conn {
@@ -23,7 +23,7 @@ public:
 
 
     static Conn::Ptr
-    create(ConnRecver* r) noexcept {
+    create(Connector* r) noexcept {
         return Ptr(new Conn(r));
     }
 
@@ -39,7 +39,7 @@ public:
     }
 
 
-    ConnRecver*
+    Connector*
     recver() noexcept {
         return recver_;
     }
@@ -88,7 +88,7 @@ public:
 
 
 private:
-    Conn(ConnRecver* r) noexcept
+    Conn(Connector* r) noexcept
         : recver_(r) {
         ea_.type = EpollArg::Type::Conn;
         ea_.data = this;
@@ -96,7 +96,7 @@ private:
 
 
     SOCKET fd_ { INVALID_SOCKET };
-    ConnRecver* recver_ { nullptr };
+    Connector* recver_ { nullptr };
     IConnEvent* service_ { nullptr };
     EpollArg ea_;
 }; // class Conn;

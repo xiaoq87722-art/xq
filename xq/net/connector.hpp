@@ -2,26 +2,26 @@
 #define __XQ_NET_CONN_RECVER_HPP__
 
 
-#include "xq/net/conn_worker.hpp"
 #include "xq/net/event.hpp"
+#include "xq/net/processor.hpp"
 #include "xq/utils/spsc.hpp"
 
 
 namespace xq::net {
 
 
-class ConnRecver {
-    ConnRecver(const ConnRecver&) = delete;
-    ConnRecver& operator=(const ConnRecver&) = delete;
-    ConnRecver(ConnRecver&&) = delete;
-    ConnRecver& operator=(ConnRecver&&) = delete;
+class Connector {
+    Connector(const Connector&) = delete;
+    Connector& operator=(const Connector&) = delete;
+    Connector(Connector&&) = delete;
+    Connector& operator=(Connector&&) = delete;
 
 
 public:
-    ConnRecver() noexcept {}
+    Connector() noexcept {}
 
 
-    ~ConnRecver() noexcept {}
+    ~Connector() noexcept {}
 
 
     bool
@@ -64,7 +64,7 @@ private:
     SOCKET evfd_ { INVALID_SOCKET };
     time_t tnow_ { 0 };
     std::atomic<int> state_ { STATE_STOPPED };
-    std::vector<ConnWorker*> workers_ {};
+    std::vector<Processor*> workers_ {};
     std::unordered_map<SOCKET, Conn::Ptr> conns_;
 }; // class Connector;
 

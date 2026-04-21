@@ -1,17 +1,17 @@
 #include "xq/net/conf.hpp"
-#include "xq/net/conn_recver.hpp"
-#include "xq/net/conn_sender.hpp"
+#include "xq/net/connector.hpp"
+#include "xq/net/sender.hpp"
 #include "xq/utils/time.hpp"
 
 
 void
-xq::net::ConnRecver::run(std::initializer_list<Conn::Ptr> conns) noexcept {
+xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
     int state_stopped = STATE_STOPPED;
     if (!state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
         return;
     }
 
-    ConnSender sender;
+    Sender sender;
     sender.run();
 
     int64_t nr = std::thread::hardware_concurrency() - 3;
@@ -20,7 +20,7 @@ xq::net::ConnRecver::run(std::initializer_list<Conn::Ptr> conns) noexcept {
     }
 
     for (uint32_t i = 0; i < nr; ++i) {
-        ConnWorker* w = new ConnWorker;
+        Processor* w = new Processor;
         w->run();
         workers_.emplace_back(w);
         while(!w->running()) {
@@ -110,7 +110,7 @@ xq::net::ConnRecver::run(std::initializer_list<Conn::Ptr> conns) noexcept {
 
 
 void
-xq::net::ConnRecver::conn_handle(EpollArg* ea) noexcept {
+xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
     auto conn = (Conn*)ea->data;
     auto itr = conns_.find(conn->fd());
     if (itr == conns_.end()) {
@@ -130,7 +130,7 @@ xq::net::ConnRecver::conn_handle(EpollArg* ea) noexcept {
 
 
 void
-xq::net::ConnRecver::event_handle(EpollArg* _) noexcept {
+xq::net::Connector::event_handle(EpollArg* _) noexcept {
     int n, err = 0;
     uint64_t val;
 
@@ -148,7 +148,7 @@ xq::net::ConnRecver::event_handle(EpollArg* _) noexcept {
 
 
 void
-xq::net::ConnRecver::add_conn(Conn::Ptr conn) noexcept {
+xq::net::Connector::add_conn(Conn::Ptr conn) noexcept {
     epoll_event ev;
     ev.data.ptr = conn->ea();
     ev.events = EPOLLIN | EPOLLET;
@@ -158,7 +158,7 @@ xq::net::ConnRecver::add_conn(Conn::Ptr conn) noexcept {
 
 
 void
-xq::net::ConnRecver::remove_conn(SOCKET fd) noexcept {
+xq::net::Connector::remove_conn(SOCKET fd) noexcept {
     auto itr = conns_.find(fd);
     if (itr != conns_.end()) {
         auto& conn = itr->second;

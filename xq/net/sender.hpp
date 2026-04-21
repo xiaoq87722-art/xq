@@ -9,15 +9,15 @@
 namespace xq::net {
 
 
-class ConnSender {
+class Sender {
 
 
 public:
-    ConnSender() noexcept
+    Sender() noexcept
     {}
 
 
-    ~ConnSender() noexcept
+    ~Sender() noexcept
     {}
 
 
@@ -31,7 +31,7 @@ public:
     run() noexcept {
         int state_stopped = STATE_STOPPED;
         if (state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
-            t_ = std::thread(&ConnSender::start, this);
+            t_ = std::thread(&Sender::start, this);
         }
     }
 
