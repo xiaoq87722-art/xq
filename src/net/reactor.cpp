@@ -187,6 +187,7 @@ xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
         if (s->listener()->service()->on_data(&ctx, s->rbuf(), n) == 0) {
             return;
         }
+        s->cbs_ = true;
     }
 
     if (n < 0) {
@@ -226,6 +227,7 @@ xq::net::Reactor::on_accept(void* params) noexcept {
 
     add_session(fd, s);
     if (arg->l->service()->on_connected(s)) {
+        s->cbs_ = true;
         remove_session(fd);
     }
     xq::utils::free(params);
