@@ -59,8 +59,9 @@ xq::net::Session::release() noexcept {
     }
 
     if (fd_ != INVALID_SOCKET) {
-        ::close(fd_);
+        SOCKET fd = fd_;
         fd_ = INVALID_SOCKET;
+        ::close(fd);
     }
 }
 
@@ -70,7 +71,7 @@ xq::net::Session::recv() noexcept {
     char* p = rbuf_;
     ssize_t nleft = RBUF_MAX;
 
-    while (1) {
+    while (nleft > 0) {
         int n = ::recv(fd_, p, nleft, 0);
         if (n < 0) {
             int err = errno;

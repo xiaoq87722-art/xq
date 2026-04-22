@@ -88,6 +88,10 @@ private:
     event_handle() noexcept;
 
 
+    void
+    conn_handle(EpollArg* ea) noexcept;
+
+
     SOCKET epfd_ { INVALID_SOCKET };
     SOCKET evfd_ { INVALID_SOCKET };
     std::atomic<int> state_ { STATE_STOPPED };

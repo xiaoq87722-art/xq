@@ -32,8 +32,19 @@ xq::net::Sender::start() noexcept {
         for (i = 0; i < nfds; ++i) {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
-            ASSERT(ea->type == EpollArg::Type::Event, "ea->type != EpollArg::Type::Event");
-            event_handle();
+            switch (ea->type) {
+                case EpollArg::Type::Event: {
+                    event_handle();
+                } break;
+
+                case EpollArg::Type::Conn: {
+                    conn_handle(ea);
+                } break;
+             
+                default: {
+                    xFATAL("Sender 不应处理 EpollArg::Type {}", (int)ea->type);
+                } break;
+            }
         }
     }
 
@@ -70,4 +81,11 @@ xq::net::Sender::event_handle() noexcept {
             c->send(nullptr, 0);
         }
     }
+}
+
+
+void
+xq::net::Sender::conn_handle(EpollArg* ea) noexcept {
+    auto c = (Conn*)ea->data;
+    c->send(nullptr, 0);
 }

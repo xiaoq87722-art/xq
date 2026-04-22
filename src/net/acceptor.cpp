@@ -6,6 +6,7 @@
 
 
 #include "xq/net/acceptor.hpp"
+#include "xq/net/conf.hpp"
 #include "xq/utils/signal.h"
 
 
@@ -114,7 +115,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     release_epoll_event(&epfd_, &evfd_);
 
     // Step 8, 停止 reactor
-    state_.store(STATE_STOPPING);
     for (auto& r: reactors_) {
         r->stop();
     }
@@ -207,6 +207,12 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
 
         constexpr int nodelay = 1;
         ASSERT(!::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)), "setsockopt failed: [{}] {}", errno, ::strerror(errno));
+
+        const auto rcv_buf = Conf::instance()->rcv_buf();
+        const auto snd_buf = Conf::instance()->snd_buf();
+
+        // ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_RCVBUF, &rcv_buf, sizeof(rcv_buf)), "setsockopt SO_RCVBUF failed: [{}] {}", errno, ::strerror(errno));
+        // ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &snd_buf, sizeof(snd_buf)), "setsockopt SO_SNDBUF failed: [{}] {}", errno, ::strerror(errno));
 
         EventAcceptParam* arg = (EventAcceptParam*)xq::utils::malloc(sizeof(EventAcceptParam));
         arg->fd = cfd;

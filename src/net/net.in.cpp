@@ -11,7 +11,7 @@
 
 
 SOCKET
-xq::net::tcp_listen(const char* host, int rcv_buf, int snd_buf) noexcept {
+xq::net::tcp_listen(const char* host) noexcept {
     std::string host_str(host);
     if (host_str.empty()) {
         return INVALID_SOCKET;
@@ -61,18 +61,6 @@ xq::net::tcp_listen(const char* host, int rcv_buf, int snd_buf) noexcept {
 
         int optval = 1;
         if (::setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval))) {
-            ::close(lfd);
-            lfd = INVALID_SOCKET;
-            continue;
-        }
-
-        if (snd_buf >= 0 && ::setsockopt(lfd, SOL_SOCKET, SO_SNDBUF, &snd_buf, sizeof(snd_buf))) {
-            ::close(lfd);
-            lfd = INVALID_SOCKET;
-            continue;
-        }
-
-        if (rcv_buf >= 0 && ::setsockopt(lfd, SOL_SOCKET, SO_RCVBUF, &rcv_buf, sizeof(rcv_buf))) {
             ::close(lfd);
             lfd = INVALID_SOCKET;
             continue;

@@ -103,7 +103,7 @@ private:
     IConnEvent* service_ { nullptr };
     std::atomic<bool> sending_ { false };
     EpollArg ea_;
-    xq::utils::RingBuf sbuf_ { RBUF_MAX };
+    xq::utils::RingBuf sbuf_ { WBUF_MAX };
     xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 4096 };
 }; // class Conn;
 

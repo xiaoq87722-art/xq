@@ -85,7 +85,6 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
         }
     }
 
-    state_.store(STATE_STOPPING);
     for (auto& p: procs_) {
         p->stop();
     }
@@ -98,7 +97,6 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
 
     sender_.stop();
     sender_.join();
-
     conns_.clear();
 
     release_epoll_event(&epfd_, &evfd_);
@@ -168,6 +166,7 @@ xq::net::Connector::remove_conn(SOCKET fd) noexcept {
     if (itr != conns_.end()) {
         auto& conn = itr->second;
         ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+        ASSERT(!::epoll_ctl(sender_.epfd(), EPOLL_CTL_DEL, fd, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
         conn->close();
         conns_.erase(itr);
     }

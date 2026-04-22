@@ -17,7 +17,7 @@ typedef int SOCKET;
 #define INVALID_SOCKET (-1)
 
 
-constexpr int RBUF_MAX = 1024 * 64;
+constexpr int RBUF_MAX = 1024 * 128;
 constexpr int WBUF_MAX = 1024 * 128;
 
 
@@ -52,7 +52,7 @@ struct EpollArg {
  * @return 成功返回 listen fd, 否则返回 INVALID_SOCKET
  */
 SOCKET
-tcp_listen(const char* endpoint, int rcv_buf, int snd_buf) noexcept;
+tcp_listen(const char* endpoint) noexcept;
 
 
 /**
