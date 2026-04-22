@@ -19,7 +19,7 @@ xq::net::Processor::start() noexcept {
     int nfds, err, i;
     state_.store(STATE_RUNNING);
 
-    while (1) {
+    while (running()) {
         err = 0;
         nfds = ::epoll_wait(epfd_, events, MAX_EVENT, INTERVAL);
         if (nfds < 0) {
@@ -37,18 +37,13 @@ xq::net::Processor::start() noexcept {
             ASSERT(ea->type == EpollArg::Type::Event, "ea->type != EpollArg::Type::Event");
             event_handle(ea);
         }
-
-        if (!running()) {
-            break;
-        }
     }
 
     int n;
-    Element es[16];
+    Message es[16];
     while (n = evque_.try_dequeue_bulk(es, 16), n > 0) {
         for (i = 0; i < n; ++i) {
-            auto& e = es[i];
-            xq::utils::free(e.data);
+            xq::utils::free(es[i].data);
         }
     }
 
@@ -76,7 +71,7 @@ xq::net::Processor::event_handle(EpollArg* _) noexcept {
 
     processing_.store(false);
 
-    Element es[16];
+    Message es[16];
     while (n = evque_.try_dequeue_bulk(es, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
             auto& e = es[i];

@@ -68,11 +68,11 @@ public:
     void
     post(Event ev) noexcept {
         if (running()) {
-            constexpr uint64_t event = 1;
             ASSERT(evque_.enqueue(std::move(ev)), "队列已满");
 
             bool expected = false;
             if (processing_.compare_exchange_strong(expected, true)) {
+                constexpr uint64_t event = 1;
                 ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
             }
         }
@@ -85,7 +85,7 @@ private:
 
 
     void
-    event_handle(EpollArg* ea) noexcept;
+    event_handle() noexcept;
 
 
     SOCKET epfd_ { INVALID_SOCKET };

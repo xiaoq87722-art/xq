@@ -11,6 +11,7 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
         return;
     }
 
+    // Step 1, 开启发送线程
     sender_.run();
 
     int64_t nr = std::thread::hardware_concurrency() - 3;
@@ -18,11 +19,12 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
         nr = 1;
     }
 
+    // Step 2, 开启业务线程
     for (uint32_t i = 0; i < nr; ++i) {
-        Processor* w = new Processor;
-        w->run();
-        workers_.emplace_back(w);
-        while(!w->running()) {
+        Processor* proc = new Processor;
+        proc->run();
+        procs_.emplace_back(proc);
+        while(!proc->running()) {
             _mm_pause();
         }
     }
@@ -31,9 +33,11 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
     const int INTERVAL = Conf::instance()->hb_check_interval();
     ::epoll_event *events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) *MAX_EVENTS);
 
+    // Step 3, 初始化 epoll 和 eventfd
     EpollArg ea { EpollArg::Type::Event, this };
     init_epoll_event(&epfd_, &evfd_, &ea);
 
+    // TODO: 添加连接对象, 该地方要删除, 后期直接访问ETCD去发现网关
     for (auto& conn : conns) {
         if (conn) {
             add_conn(conn);
@@ -44,7 +48,7 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
     time_t last_check_time = 0;
     state_.store(STATE_RUNNING);
 
-    while (1) {
+    while (running()) {
         nfds = ::epoll_wait(epfd_, events, MAX_EVENTS, INTERVAL);
         if (nfds == -1) {
             err = errno;
@@ -66,7 +70,7 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
                 } break;
 
                 case EpollArg::Type::Event: {
-                    event_handle(ea);
+                    event_handle();
                 } break;
 
                 default: {
@@ -75,35 +79,30 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
             } // switch (ea->type);
         }
 
-        if (!running()) {
-            break;
-        }
-
         if (last_check_time + 5 <= tnow_) {
-            // TODO: 心跳
+            // TODO: 发送心跳
             last_check_time = tnow_;
         }
     }
 
     state_.store(STATE_STOPPING);
-    for (auto& w: workers_) {
-        w->stop();
+    for (auto& p: procs_) {
+        p->stop();
     }
 
-    for (auto& w: workers_) {
-        w->join();
-        delete w;
+    for (auto& p: procs_) {
+        p->join();
+        delete p;
     }
-    workers_.clear();
-
-    release_epoll_event(&epfd_, &evfd_);
-    xq::utils::free(events);
+    procs_.clear();
 
     sender_.stop();
     sender_.join();
 
     conns_.clear();
 
+    release_epoll_event(&epfd_, &evfd_);
+    xq::utils::free(events);
     state_.store(STATE_STOPPED);
 }
 
@@ -124,12 +123,14 @@ xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
         return;
     }
 
-    workers_[conn->fd() % workers_.size()]->post({itr->second, buf, n});
+    // TODO 不能取模, 这样的话只会跑同一个 processor
+    procs_[conn->fd() % procs_.size()]->post({itr->second, buf, n});
 }
 
 
 void
-xq::net::Connector::event_handle(EpollArg* _) noexcept {
+xq::net::Connector::event_handle() noexcept {
+    // event handle 只处理 stop 事件, 所以这里只需要读空数据就可以
     int n, err = 0;
     uint64_t val;
 

@@ -56,7 +56,7 @@ private:
 
 
     void
-    event_handle(EpollArg* _) noexcept;
+    event_handle() noexcept;
 
 
     void
@@ -72,7 +72,7 @@ private:
     time_t tnow_ { 0 };
     std::atomic<int> state_ { STATE_STOPPED };
     Sender sender_;
-    std::vector<Processor*> workers_ {};
+    std::vector<Processor*> procs_ {};
     std::unordered_map<SOCKET, Conn::Ptr> conns_;
 }; // class Connector;
 

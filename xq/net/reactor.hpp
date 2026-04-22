@@ -47,15 +47,31 @@ public:
 
     
     void
-    run() noexcept;
+    run() noexcept {
+        int state_stopped = STATE_STOPPED;
+
+        if (state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
+            t_ = std::thread(&Reactor::start, this);
+        }
+    }
 
     
     void
-    stop() noexcept;
+    stop() noexcept {
+        int state_running = STATE_RUNNING;
+        if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
+            constexpr uint64_t stop = 1;
+            ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
+        }
+    }
 
 
     void
-    join() noexcept;
+    join() noexcept {
+        if (t_.joinable()) {
+            t_.join();
+        }
+    }
 
 
     void

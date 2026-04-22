@@ -11,34 +11,6 @@
 
 
 void
-xq::net::Reactor::run() noexcept {
-    int state_stopped = STATE_STOPPED;
-
-    if (state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
-        t_ = std::thread(&Reactor::start, this);
-    }
-}
-
-
-void
-xq::net::Reactor::stop() noexcept {
-    int state_running = STATE_RUNNING;
-    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
-        constexpr uint64_t stop = 1;
-        ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
-    }
-}
-
-
-void
-xq::net::Reactor::join() noexcept {
-    if (t_.joinable()) {
-        t_.join();
-    }
-}
-
-
-void
 xq::net::Reactor::post(Event ev) noexcept {
     if (!running()) {
         return;
@@ -56,8 +28,10 @@ xq::net::Reactor::post(Event ev) noexcept {
 
 void
 xq::net::Reactor::start() noexcept {
+    // Step 1, 屏蔽信号
     xq::utils::block_signal({ SIGINT, SIGTERM });
 
+    // Step 2, 初始化 epoll 和 eventfd
     EpollArg ea { EpollArg::Type::Event, this };
     init_epoll_event(&epfd_, &evfd_, &ea);
 
@@ -69,7 +43,8 @@ xq::net::Reactor::start() noexcept {
     const int INTERVAL = Conf::instance()->hb_check_interval();
     state_.store(STATE_RUNNING);
 
-    while (1) {
+    // Step 3, IO LOOP
+    while (running()) {
         err = 0;
         nfds = ::epoll_wait(epfd_, events, MAX_EVENT, INTERVAL);
         if (nfds < 0) {
@@ -109,22 +84,20 @@ xq::net::Reactor::start() noexcept {
             } // switch (ea->type);
         }
 
-        if (!running()) {
-            break;
-        }
-
         if (last_check_time + 5 <= tnow_) {
             timer_handle();
             last_check_time = tnow_;
         }
     }
 
+    // Step 4, 清空会话
     while (!sessions_.empty()) {
         auto itr = sessions_.begin();
         itr->second->cbs_ = true;
         remove_session(itr->first);
     }
 
+    //  Step 5, 释放 epoll 和 eventfd
     release_epoll_event(&epfd_, &evfd_);
     
     xq::utils::free(events);
@@ -246,10 +219,6 @@ xq::net::Reactor::on_broadcast(void* params) noexcept {
     auto arg = (EventBroadcastParam*)params;
 
     for (auto& [fd, s] : sessions_) {
-        if (s->reactor() != this) {
-            continue;
-        }
-
         s->send(this, arg->data, arg->len);
     }
 

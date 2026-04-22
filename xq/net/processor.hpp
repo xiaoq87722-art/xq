@@ -20,7 +20,7 @@ class Processor {
     Processor& operator=(Processor&&) = delete;
 
 
-    struct Element {
+    struct Message {
         Conn::Ptr conn;
         void* data;
         int len;
@@ -76,16 +76,16 @@ public:
 
 
     void
-    post(Element e) noexcept {
+    post(Message e) noexcept {
         if (!running()) {
             return;
         }
 
-        constexpr uint64_t event = 1;
         ASSERT(evque_.enqueue(std::move(e)), "队列已满");
 
         bool expected = false;
         if (processing_.compare_exchange_strong(expected, true)) {
+            constexpr uint64_t event = 1;
             ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
         }
     }
@@ -105,7 +105,7 @@ private:
     std::atomic<int> state_ { STATE_STOPPED };
     std::atomic<bool> processing_ { false };
     std::thread t_;
-    xq::utils::SPSC<Element> evque_ {};
+    xq::utils::SPSC<Message> evque_ {};
 }; // class Worker;
 
 

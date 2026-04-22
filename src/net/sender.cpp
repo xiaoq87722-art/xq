@@ -1,4 +1,5 @@
 #include "xq/net/conf.hpp"
+#include "xq/net/conn.hpp"
 #include "xq/net/sender.hpp"
 #include "xq/utils/signal.h"
 
@@ -17,7 +18,7 @@ xq::net::Sender::start() noexcept {
     int nfds, err, i;
     state_.store(STATE_RUNNING);
 
-    while (1) {
+    while (running()) {
         nfds = ::epoll_wait(epfd_, events, MAX_EVENT, INTERVAL);
         if (nfds < 0) {
             err = errno;
@@ -32,11 +33,7 @@ xq::net::Sender::start() noexcept {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
             ASSERT(ea->type == EpollArg::Type::Event, "ea->type != EpollArg::Type::Event");
-            event_handle(ea);
-        }
-
-        if (!running()) {
-            break;
+            event_handle();
         }
     }
 
@@ -46,7 +43,7 @@ xq::net::Sender::start() noexcept {
 
 
 void
-xq::net::Sender::event_handle(EpollArg* _) noexcept {
+xq::net::Sender::event_handle() noexcept {
     int n;
     uint64_t val;
 
@@ -69,7 +66,8 @@ xq::net::Sender::event_handle(EpollArg* _) noexcept {
         for (int i = 0; i < n; ++i) {
             auto& ev = evs[i];
             ASSERT(ev.type == Event::Type::Send, "e.cmd != Event::Command::Send");
-            // conn->send(e.data, e.len);
+            auto c = (Conn*)ev.data;
+            c->send(nullptr, 0);
         }
     }
 }

@@ -39,11 +39,6 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
 
 void
 xq::net::Session::release() noexcept {
-    if (fd_ != INVALID_SOCKET) {
-        ::close(fd_);
-        fd_ = INVALID_SOCKET;
-    }
-
     if (listener_) {
         listener_ = nullptr;
     }
@@ -61,6 +56,11 @@ xq::net::Session::release() noexcept {
             auto& sbuf = sbufs[i];
             xq::utils::free(sbuf.data);
         }
+    }
+
+    if (fd_ != INVALID_SOCKET) {
+        ::close(fd_);
+        fd_ = INVALID_SOCKET;
     }
 }
 
