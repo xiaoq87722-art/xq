@@ -21,17 +21,52 @@ class Conn {
 
 
 public:
-    typedef std::shared_ptr<Conn> Ptr;
-
-
-    static Conn::Ptr
-    create(Connector* r) noexcept {
-        return Ptr(new Conn(r));
+    Conn() noexcept {
+        ea_.type = EpollArg::Type::Conn;
+        ea_.data = this;
     }
 
 
     ~Conn() noexcept {
-        close();
+        release();
+    }
+
+
+    void 
+    init(const char* host, Connector* r) noexcept {
+        fd_ = tcp_connect(host);
+        ASSERT(fd_ != INVALID_SOCKET, "tcp_connect failed");
+        connector_ = r;
+    }
+
+
+    void
+    release() noexcept {
+        if (connector_) {
+            connector_ = nullptr;
+        }
+
+        sbuf_.clear();
+
+        int n;
+        xq::utils::SendBuf sbufs[16];
+        while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
+            for (int i = 0; i < n; ++i) {
+                xq::utils::free(sbufs[i].data);
+            }
+        }
+
+        if (fd_ != INVALID_SOCKET) {
+            SOCKET fd = fd_;
+            fd_ = INVALID_SOCKET;
+            ::close(fd);
+        }
+    }
+
+
+    bool
+    valid() const noexcept {
+        return fd_ != INVALID_SOCKET;
     }
 
 
@@ -47,28 +82,9 @@ public:
     }
 
 
-    IConnEvent*
-    service() noexcept {
-        return service_;
-    }
-
-
-    void
-    set_service(IConnEvent* service) noexcept {
-        service_ = service;
-    }
-
-
     EpollArg*
     ea() noexcept {
         return &ea_;
-    }
-
-
-    int
-    connect(const char* host) noexcept {
-        fd_ = xq::net::tcp_connect(host);
-        return fd_ == INVALID_SOCKET ? -1 : 0;
     }
 
 
@@ -90,17 +106,9 @@ public:
 
 
 private:
-    Conn(Connector* r) noexcept
-        : connector_(r) {
-        ea_.type = EpollArg::Type::Conn;
-        ea_.data = this;
-    }
-
-
     bool wait_out_ { false };
     SOCKET fd_ { INVALID_SOCKET };
     Connector* connector_ { nullptr };
-    IConnEvent* service_ { nullptr };
     std::atomic<bool> sending_ { false };
     EpollArg ea_;
     xq::utils::RingBuf sbuf_ { WBUF_MAX };

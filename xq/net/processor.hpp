@@ -21,14 +21,15 @@ class Processor {
 
 
     struct Message {
-        Conn::Ptr conn;
+        Conn* conn;
         void* data;
         int len;
     };
 
 
 public:
-    Processor() noexcept
+    Processor(Connector* c) noexcept
+        : connector_(c)
     {}
 
 
@@ -102,6 +103,7 @@ private:
 
     SOCKET epfd_ { INVALID_SOCKET };
     SOCKET evfd_ { INVALID_SOCKET };
+    Connector* connector_ { nullptr };
     std::atomic<int> state_ { STATE_STOPPED };
     std::atomic<bool> processing_ { false };
     std::thread t_;

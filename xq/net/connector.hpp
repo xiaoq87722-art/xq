@@ -19,7 +19,9 @@ class Connector {
 
 
 public:
-    Connector() noexcept {}
+    Connector(IConnEvent* s) noexcept
+        : service_(s)
+    {}
 
 
     ~Connector() noexcept {}
@@ -36,8 +38,15 @@ public:
         return &sender_;
     }
 
+
+    IConnEvent*
+    service() noexcept {
+        return service_;
+    }
+
+
     void
-    run(std::initializer_list<Conn::Ptr> conns) noexcept;
+    run() noexcept;
 
 
     void
@@ -60,7 +69,7 @@ private:
 
 
     void
-    add_conn(Conn::Ptr conn) noexcept;
+    add_conn(Conn* conn) noexcept;
 
 
     void
@@ -70,10 +79,11 @@ private:
     SOCKET epfd_ { INVALID_SOCKET };
     SOCKET evfd_ { INVALID_SOCKET };
     time_t tnow_ { 0 };
+    IConnEvent* service_ { nullptr };
     std::atomic<int> state_ { STATE_STOPPED };
     Sender sender_;
     std::vector<Processor*> procs_ {};
-    std::unordered_map<SOCKET, Conn::Ptr> conns_;
+    Conn* conns_[1024];
 }; // class Connector;
 
 

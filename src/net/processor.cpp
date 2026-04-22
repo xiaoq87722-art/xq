@@ -1,4 +1,5 @@
 #include "xq/net/conf.hpp"
+#include "xq/net/connector.hpp"
 #include "xq/net/processor.hpp"
 #include "xq/net/event.hpp"
 #include "xq/utils/signal.h"
@@ -75,7 +76,7 @@ xq::net::Processor::event_handle(EpollArg* _) noexcept {
     while (n = evque_.try_dequeue_bulk(es, 16), n > 0) {
         for (int i = 0; i < n; ++i) {
             auto& e = es[i];
-            e.conn->service()->on_data(e.conn.get(), (char*)e.data, e.len);
+            connector_->service()->on_data(e.conn, (char*)e.data, e.len);
             xq::utils::free(e.data);
         }
     }

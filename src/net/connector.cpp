@@ -5,7 +5,7 @@
 
 
 void
-xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
+xq::net::Connector::run() noexcept {
     int state_stopped = STATE_STOPPED;
     if (!state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
         return;
@@ -21,7 +21,7 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
 
     // Step 2, 开启业务线程
     for (uint32_t i = 0; i < nr; ++i) {
-        Processor* proc = new Processor;
+        Processor* proc = new Processor(this);
         proc->run();
         procs_.emplace_back(proc);
         while(!proc->running()) {
@@ -36,13 +36,6 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
     // Step 3, 初始化 epoll 和 eventfd
     EpollArg ea { EpollArg::Type::Event, this };
     init_epoll_event(&epfd_, &evfd_, &ea);
-
-    // TODO: 添加连接对象, 该地方要删除, 后期直接访问ETCD去发现网关
-    for (auto& conn : conns) {
-        if (conn) {
-            add_conn(conn);
-        }
-    }
 
     int nfds, err;
     time_t last_check_time = 0;
@@ -97,7 +90,13 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
 
     sender_.stop();
     sender_.join();
-    conns_.clear();
+  
+    for (int i = 0; i < 1024; ++i) {
+        if (conns_[i]) {
+            delete conns_[i];
+            conns_[i] = nullptr;
+        }
+    }
 
     release_epoll_event(&epfd_, &evfd_);
     xq::utils::free(events);
@@ -108,11 +107,6 @@ xq::net::Connector::run(std::initializer_list<Conn::Ptr> conns) noexcept {
 void
 xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
     auto conn = (Conn*)ea->data;
-    auto itr = conns_.find(conn->fd());
-    if (itr == conns_.end()) {
-        return;
-    }
-
     void* buf = xq::utils::malloc(RBUF_MAX);
     int n = conn->recv(buf, RBUF_MAX);
     if (n <= 0) {
@@ -122,7 +116,7 @@ xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
     }
 
     // TODO 不能取模, 这样的话只会跑同一个 processor
-    procs_[conn->fd() % procs_.size()]->post({itr->second, buf, n});
+    procs_[conn->fd() % procs_.size()]->post({conn, buf, n});
 }
 
 
@@ -146,7 +140,7 @@ xq::net::Connector::event_handle() noexcept {
 
 
 void
-xq::net::Connector::add_conn(Conn::Ptr conn) noexcept {
+xq::net::Connector::add_conn(Conn* conn) noexcept {
     ::epoll_event evr;
     evr.data.ptr = conn->ea();
     evr.events = EPOLLIN | EPOLLET;
@@ -156,18 +150,16 @@ xq::net::Connector::add_conn(Conn::Ptr conn) noexcept {
     evw.data.ptr = conn->ea();
     evw.events = EPOLLET | EPOLLOUT;
     ASSERT(!::epoll_ctl(sender_.epfd(), EPOLL_CTL_ADD, conn->fd(), &evw), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
-    conns_.insert({ conn->fd(), conn });
+
 }
 
 
 void
 xq::net::Connector::remove_conn(SOCKET fd) noexcept {
-    auto itr = conns_.find(fd);
-    if (itr != conns_.end()) {
-        auto& conn = itr->second;
+    auto conn = conns_[fd];
+    if (conn) {
         ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
         ASSERT(!::epoll_ctl(sender_.epfd(), EPOLL_CTL_DEL, fd, nullptr), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
-        conn->close();
-        conns_.erase(itr);
+        conn->release();
     }
 }
