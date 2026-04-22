@@ -163,10 +163,7 @@ xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
         s->cbs_ = true;
     }
 
-    if (n < 0) {
-        xERROR("recv failed for session [{}]: {}", s->to_string(), -n);
-    }
-
+    if (n < 0) xINFO("出现错误，关闭连接 [{}]", s->to_string());
     remove_session(s->fd());
 }
 
