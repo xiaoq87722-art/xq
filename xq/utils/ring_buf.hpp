@@ -19,8 +19,43 @@ namespace xq::utils {
 
 
 struct SendBuf {
-    int len;
-    char* data;
+    static constexpr size_t INLINE_CAP = 512;
+
+    int   len;
+    bool  inlined;
+    char* heap;                    // 仅当 !inlined 时有效
+    char  inline_buf[INLINE_CAP];  // 仅当 inlined 时有效
+
+    char*
+    data() noexcept {
+        return inlined ? inline_buf : heap;
+    }
+
+    const char*
+    data() const noexcept {
+        return inlined ? inline_buf : heap;
+    }
+
+    void
+    fill(const void* src, size_t n) noexcept {
+        len = (int)n;
+        if (n <= INLINE_CAP) {
+            inlined = true;
+            ::memcpy(inline_buf, src, n);
+        } else {
+            inlined = false;
+            heap = (char*)xq::utils::malloc(n);
+            ::memcpy(heap, src, n);
+        }
+    }
+
+    void
+    release() noexcept {
+        if (!inlined && heap) {
+            xq::utils::free(heap);
+            heap = nullptr;
+        }
+    }
 }; // struct SendBuf;
 
 

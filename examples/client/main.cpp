@@ -186,6 +186,23 @@ static void worker(int conn_start, int conn_end, std::atomic<bool>& stop) {
         }
     }
 
+    // 收尾: shutdown(SHUT_WR) 通知 server 停发, drain 在途 echo 到 EOF, 再 close
+    // 避免客户端 recv buf 残留数据导致 close() 发 RST 给 server
+    for (auto& c : conns) {
+        if (c.fd >= 0) ::shutdown(c.fd, SHUT_WR);
+    }
+
+    uint64_t deadline = now_ns() + 500'000'000ULL;
+    char drain_buf[4096];
+    while (now_ns() < deadline) {
+        int n = ::epoll_wait(epfd, events.data(), (int)events.size(), 50);
+        for (int i = 0; i < n; ++i) {
+            auto* c = (Conn*)events[i].data.ptr;
+            if (c->fd < 0) continue;
+            while (::recv(c->fd, drain_buf, sizeof(drain_buf), 0) > 0) { /* drain */ }
+        }
+    }
+
     for (auto& c : conns) {
         if (c.fd >= 0) ::close(c.fd);
     }

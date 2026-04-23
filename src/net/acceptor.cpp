@@ -130,6 +130,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
     for (i = 0; i < MAX_CONN; ++i) {
         auto s = sessions_[i];
         if (s) {
+            s->~Session();
             xq::utils::free(s);
             sessions_[i] = nullptr;
         }
@@ -151,6 +152,8 @@ xq::net::Acceptor::stop() noexcept {
 
 int
 xq::net::Acceptor::broadcast(const char* data, size_t len) noexcept {
+    ASSERT(data && len > 0, "参数错误");
+
     for (auto& r: reactors_) {
         EventBroadcastParam* arg = (EventBroadcastParam*)xq::utils::malloc(sizeof(EventBroadcastParam) + len);
         ::memcpy(arg->data, data, len);
@@ -211,8 +214,8 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
         const auto rcv_buf = Conf::instance()->rcv_buf();
         const auto snd_buf = Conf::instance()->snd_buf();
 
-        // ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_RCVBUF, &rcv_buf, sizeof(rcv_buf)), "setsockopt SO_RCVBUF failed: [{}] {}", errno, ::strerror(errno));
-        // ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &snd_buf, sizeof(snd_buf)), "setsockopt SO_SNDBUF failed: [{}] {}", errno, ::strerror(errno));
+        ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_RCVBUF, &rcv_buf, sizeof(rcv_buf)), "setsockopt SO_RCVBUF failed: [{}] {}", errno, ::strerror(errno));
+        ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &snd_buf, sizeof(snd_buf)), "setsockopt SO_SNDBUF failed: [{}] {}", errno, ::strerror(errno));
 
         EventAcceptParam* arg = (EventAcceptParam*)xq::utils::malloc(sizeof(EventAcceptParam));
         arg->fd = cfd;

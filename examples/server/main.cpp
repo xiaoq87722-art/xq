@@ -33,12 +33,20 @@ public:
 
 
     virtual int
-    on_data(xq::net::Context* ctx, const char* data, size_t len) override {
-        if (ALLOW_BROADCAST && len % 5 == 0) {
-            ctx->session->broadcast(data, len);
-        } else {
-            ctx->send(data, len);
+    on_data(xq::net::Context* ctx, xq::utils::RingBuf& rbuf) override {
+        iovec iov[2];
+        int niov = rbuf.read_iov(iov);
+        size_t total = 0;
+        for (int i = 0; i < niov; ++i) {
+            size_t n = iov[i].iov_len;
+            if (ALLOW_BROADCAST && n % 5 == 0) {
+                ctx->session->broadcast((char*)iov[i].iov_base, n);
+            } else {
+                ctx->send((char*)iov[i].iov_base, n);
+            }
+            total += n;
         }
+        rbuf.read_consume(total);
         return 0;
     }
 };

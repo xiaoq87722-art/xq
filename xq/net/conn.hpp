@@ -27,34 +27,16 @@ public:
     }
 
 
-    ~Conn() noexcept {
-        release();
-    }
+    ~Conn() noexcept;
 
 
     void 
-    init(const char* host, Connector* r) noexcept {
-        fd_ = tcp_connect(host);
-        ASSERT(fd_ != INVALID_SOCKET, "tcp_connect failed");
-        connector_ = r;
-    }
+    init(const char* host, Connector* r) noexcept;
 
 
     void
     release() noexcept {
-        if (connector_) {
-            connector_ = nullptr;
-        }
-
         sbuf_.clear();
-
-        int n;
-        xq::utils::SendBuf sbufs[16];
-        while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
-            for (int i = 0; i < n; ++i) {
-                xq::utils::free(sbufs[i].data);
-            }
-        }
 
         if (fd_ != INVALID_SOCKET) {
             SOCKET fd = fd_;

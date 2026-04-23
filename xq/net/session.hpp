@@ -86,7 +86,7 @@ public:
     }
 
 
-    char*
+    xq::utils::RingBuf&
     rbuf() noexcept {
         return rbuf_;
     }
@@ -126,9 +126,9 @@ private:
     bool wait_out_ { false };
     std::atomic<bool> sending_ { false };
     xq::utils::RingBuf sbuf_ { WBUF_MAX };
-    
+    xq::utils::RingBuf rbuf_ { RBUF_MAX };
+
     xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 32 };
-    char rbuf_[RBUF_MAX] { 0 };
 }; // class Session;
 
     

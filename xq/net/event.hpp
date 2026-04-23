@@ -3,6 +3,7 @@
 
 
 #include "xq/net/net.in.hpp"
+#include "xq/utils/ring_buf.hpp"
 
 
 namespace xq::net {
@@ -62,7 +63,7 @@ public:
 
 
     virtual int
-    on_data(Context* ctx, const char* data, size_t len) = 0;
+    on_data(Context* ctx, xq::utils::RingBuf& rbuf) = 0;
 }; // class IListnerEvent;
 
 

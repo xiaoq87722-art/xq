@@ -21,7 +21,10 @@ xq::net::Reactor::post(Event ev) noexcept {
 
     bool processing = false;
     if (processing_.compare_exchange_strong(processing, true)) {
-        ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+        if (::write(evfd_, &event, sizeof(event)) != sizeof(event)) {
+            int err = errno;
+            xERROR("write failed: [{}] {}", err, ::strerror(err));
+        }
     }   
 }
 
@@ -153,18 +156,10 @@ void
 xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
 
-    int n = s->recv();
-    if (n > 0) {
-        Context ctx(this, s);
-
-        if (s->listener()->service()->on_data(&ctx, s->rbuf(), n) == 0) {
-            return;
-        }
-        s->cbs_ = true;
+    if (s->recv() < 0) {
+        xINFO("出现错误，关闭连接 [{}]", s->to_string());
+        remove_session(s->fd());
     }
-
-    if (n < 0) xINFO("出现错误，关闭连接 [{}]", s->to_string());
-    remove_session(s->fd());
 }
 
 
@@ -184,10 +179,10 @@ xq::net::Reactor::on_accept(void* params) noexcept {
     auto arg = (EventAcceptParam*)params;
     auto fd = arg->fd;
 
-    Session* s = Acceptor::instance()->sessions()[fd];
-    if (!s) {
-        Acceptor::instance()->sessions()[fd] = s = Session::create();
+    if (!Acceptor::instance()->sessions()[fd]) {
+        Acceptor::instance()->sessions()[fd] = Session::create();
     }
+    auto s = Acceptor::instance()->sessions()[fd];
     s->init(fd, arg->l, this);
 
     ::epoll_event ev;
@@ -215,8 +210,15 @@ void
 xq::net::Reactor::on_broadcast(void* params) noexcept {
     auto arg = (EventBroadcastParam*)params;
 
-    for (auto& [fd, s] : sessions_) {
-        s->send(this, arg->data, arg->len);
+    for (auto itr = sessions_.begin(); itr != sessions_.end();) {
+        auto s = itr->second;
+        if (s->send(this, nullptr, 0) < 0) {
+            s->cbs_ = true;
+            ++itr;
+            remove_session(s->fd());
+        } else {
+            ++itr;
+        }
     }
 
     xq::utils::free(params);
