@@ -11,6 +11,7 @@ namespace xq::net {
 
 
 class Connector;
+class Processor;
 
 
 /**
@@ -21,6 +22,9 @@ class Conn {
     Conn& operator=(const Conn&) = delete;
     Conn(Conn&&) = delete;
     Conn& operator=(Conn&&) = delete;
+
+    friend class Processor;
+    friend class Connector;
 
 
 public:
@@ -52,6 +56,7 @@ public:
         bool expected = true;
         if (valid_.compare_exchange_strong(expected, false)) {
             sbuf_.clear();
+            proc_ = nullptr;
             SOCKET fd = fd_;
             fd_ = INVALID_SOCKET;
             ::close(fd);
@@ -103,6 +108,8 @@ private:
 
     /** 所属 connector */
     Connector* connector_ { nullptr };
+
+    Processor* proc_ { nullptr };
 
     /** 是否处理发送中 */
     std::atomic<bool> sending_ { false };

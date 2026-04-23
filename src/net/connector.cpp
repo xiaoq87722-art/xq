@@ -29,9 +29,8 @@ xq::net::Connector::run() noexcept {
         }
     }
 
-    const int MAX_EVENTS = Conf::instance()->per_max_conn();
     const int INTERVAL = Conf::instance()->hb_check_interval();
-    ::epoll_event *events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) *MAX_EVENTS);
+    ::epoll_event *events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) * MAX_CONN);
 
     // Step 3, 初始化 epoll 和 eventfd
     EpollArg ea { EpollArg::Type::Event, this };
@@ -41,8 +40,9 @@ xq::net::Connector::run() noexcept {
     time_t last_check_time = 0;
     state_.store(STATE_RUNNING);
 
+    // Step 4, IO LOOP
     while (running()) {
-        nfds = ::epoll_wait(epfd_, events, MAX_EVENTS, INTERVAL);
+        nfds = ::epoll_wait(epfd_, events, MAX_CONN, INTERVAL);
         if (nfds == -1) {
             err = errno;
             if (err == EINTR) {
@@ -67,17 +67,18 @@ xq::net::Connector::run() noexcept {
                 } break;
 
                 default: {
-                    xFATAL("ConnRecver 不应处理 EpollArg::Type {}", (int)ea->type);
+                    xFATAL("connector 不应处理 EpollArg::Type {}", (int)ea->type);
                 } break;
             } // switch (ea->type);
         }
 
-        if (last_check_time + 5 <= tnow_) {
+        if (last_check_time + INTERVAL <= tnow_) {
             // TODO: 发送心跳
             last_check_time = tnow_;
         }
     }
 
+    // Step 5, 停止业务线程
     for (auto& p: procs_) {
         p->stop();
     }
@@ -88,9 +89,11 @@ xq::net::Connector::run() noexcept {
     }
     procs_.clear();
 
+    // Step 6, 停止发送线程
     sender_.stop();
     sender_.join();
   
+    // Step 7, 清理连接池
     for (int i = 0; i < 1024; ++i) {
         if (conns_[i]) {
             delete conns_[i];
@@ -98,6 +101,7 @@ xq::net::Connector::run() noexcept {
         }
     }
 
+    // Step 8, 释放 epoll 和 event
     release_epoll_event(&epfd_, &evfd_);
     xq::utils::free(events);
     state_.store(STATE_STOPPED);
@@ -106,6 +110,8 @@ xq::net::Connector::run() noexcept {
 
 void
 xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
+    static uint32_t index = 0;
+
     auto conn = (Conn*)ea->data;
     void* buf = xq::utils::malloc(RBUF_MAX);
     int n = conn->recv(buf, RBUF_MAX);
@@ -115,8 +121,12 @@ xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
         return;
     }
 
-    // TODO 不能取模, 这样的话只会跑同一个 processor
-    procs_[conn->fd() % procs_.size()]->post({conn, buf, n});
+    auto p = procs_[index++ % procs_.size()];
+    if (conn->proc_ == nullptr) {
+        conn->proc_ = p;
+    }
+
+    p->post({conn, buf, n});
 }
 
 
