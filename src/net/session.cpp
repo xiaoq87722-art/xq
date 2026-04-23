@@ -62,7 +62,7 @@ int
 xq::net::Session::recv() noexcept {
     ssize_t total = 0;
 
-    for (;;) {
+    while (1) {
         iovec iov[2];
         int niov = rbuf_.write_iov(iov);
         if (niov == 0) {
@@ -83,7 +83,6 @@ xq::net::Session::recv() noexcept {
         if (n < 0) {
             int err = errno;
             if (err != EAGAIN && err != EWOULDBLOCK) {
-                // ECONNRESET/ETIMEDOUT/EPIPE 属于非优雅断开, 不是服务端错误, 降为 INFO
                 if (err == ECONNRESET || err == ETIMEDOUT || err == EPIPE) {
                     xINFO("readv: [{}] {} [{}]", err, ::strerror(err), to_string());
                 } else {

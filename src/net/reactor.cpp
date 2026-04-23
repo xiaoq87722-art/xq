@@ -156,8 +156,11 @@ void
 xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
 
-    if (s->recv() < 0) {
-        xINFO("出现错误，关闭连接 [{}]", s->to_string());
+    int n = s->recv();
+    if (n <= 0) {
+        if (n != EOF) {
+            xINFO("出现错误，关闭连接 [{}]", s->to_string());
+        }
         remove_session(s->fd());
     }
 }
