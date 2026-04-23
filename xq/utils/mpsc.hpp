@@ -186,6 +186,18 @@ public:
     }
 
 
+    void
+    clear(std::function<void(T&)> handle) {
+        int n;
+        T es[16];
+        while ((n = try_dequeue_bulk(es, 16)) > 0) {
+            for (int i = 0; i < n; ++i) {
+                handle(es[i]);
+            }
+        }
+    }
+
+
 private:
     const size_t shard_mask_;
     std::vector<std::unique_ptr<SingleQueue>> shards_;

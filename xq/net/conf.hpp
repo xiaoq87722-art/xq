@@ -55,10 +55,10 @@ private:
     Conf() noexcept {}
 
 
-    int rcv_buf_           { 1024 * 1024 };
-    int snd_buf_           { 1024 * 1024 };
-    int timeout_           { 40 };
-    int per_max_conn_      { 1024 };
+    int rcv_buf_ { 1024 * 1024 };
+    int snd_buf_ { 1024 * 1024 };
+    int timeout_ { 40 };
+    int per_max_conn_ { 1024 };
     int hb_check_interval_ { 5000 };
 }; // class Conf;
 

@@ -45,6 +45,7 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
         Reactor* r = new Reactor();
         r->run();
         reactors_.emplace_back(r);
+    
         while(!r->running()) {
             _mm_pause();
         }
@@ -140,16 +141,6 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
 }
 
 
-void
-xq::net::Acceptor::stop() noexcept {
-    int state_running = STATE_RUNNING;
-    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
-        constexpr uint64_t stop = 1;
-        ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
-    }
-}
-
-
 int
 xq::net::Acceptor::broadcast(const char* data, size_t len) noexcept {
     ASSERT(data && len > 0, "参数错误");
@@ -208,12 +199,10 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
             continue;
         }
 
-        constexpr int nodelay = 1;
-        ASSERT(!::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)), "setsockopt failed: [{}] {}", errno, ::strerror(errno));
-
         const auto rcv_buf = Conf::instance()->rcv_buf();
         const auto snd_buf = Conf::instance()->snd_buf();
-
+        constexpr int nodelay = 1;
+        ASSERT(!::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)), "setsockopt failed: [{}] {}", errno, ::strerror(errno));
         ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_RCVBUF, &rcv_buf, sizeof(rcv_buf)), "setsockopt SO_RCVBUF failed: [{}] {}", errno, ::strerror(errno));
         ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &snd_buf, sizeof(snd_buf)), "setsockopt SO_SNDBUF failed: [{}] {}", errno, ::strerror(errno));
 
@@ -221,6 +210,6 @@ xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
         arg->fd = cfd;
         arg->l = l;
 
-        next_reactor(reactors_)->post(Event{ Event::Type::Accept, arg });
+        next_reactor(reactors_)->post({ Event::Type::Accept, arg });
     }   
 }

@@ -117,11 +117,12 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
         return -1;
     }
 
-    // TODO: 跨线程分支存在 Session 池复用 UAR 风险.
-    //   业务线程 T 通过 valid() 后, Reactor 线程可能 release() 并被 Acceptor 重新 init()
-    //   成新连接, T 后续的 sque_.enqueue 会污染新连接.
-    //   修复方案: 加 std::atomic<uint64_t> gen_, 调用方持有 (Session*, gen) pair,
-    //   enqueue 前后各 check 一次 gen_ 是否匹配; 或改用 refcount 延长对象生命周期.
+    // TODO: 跨线程 send 存在 Session 池复用 UAR race.
+    //   send() 入口的 valid() check 与末尾 sque_.enqueue 之间存在 TOCTOU 窗口:
+    //   Reactor 线程可能 release(), Acceptor 重新 init() 成新连接,
+    //   此时 T 的 enqueue 会污染新连接.
+    //   彻底修复需要 gen/epoch (调用方持有 (Session*, gen) pair, enqueue 前后各
+    //   check 一次 gen_ 是否匹配) 或 refcount 延长对象生命周期.
     //   临时对策: 调用方保证只在 Session 所属 reactor 线程调用 send().
     if (r != reactor_) {
         xq::utils::SendBuf sb;

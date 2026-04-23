@@ -21,6 +21,13 @@ namespace xq::utils {
 struct SendBuf {
     static constexpr size_t INLINE_CAP = 512;
 
+
+    static void
+    clear(SendBuf& sb) noexcept {
+        sb.release();
+    }
+
+
     int   len;
     bool  inlined;
     char* heap;                    // 仅当 !inlined 时有效

@@ -4,18 +4,17 @@
 
 xq::net::Conn::~Conn() noexcept {
     release();
-    int n;
-    xq::utils::SendBuf sbufs[16];
-    while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
-        for (int i = 0; i < n; ++i) {
-            sbufs[i].release();
-        }
-    }
+    sque_.clear(xq::utils::SendBuf::clear);
 }
 
 
 void
 xq::net::Conn::init(const char* host, Connector* r) noexcept {
+    bool expected = false;
+    if (!valid_.compare_exchange_strong(expected, true)) {
+        return;
+    }
+
     fd_ = tcp_connect(host);
     ASSERT(fd_ != INVALID_SOCKET, "tcp_connect failed");
     connector_ = r;
@@ -23,19 +22,16 @@ xq::net::Conn::init(const char* host, Connector* r) noexcept {
     sending_.store(false, std::memory_order_relaxed);
 
     sbuf_.clear();
-
-    int n;
-    xq::utils::SendBuf sbufs[16];
-    while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
-        for (int i = 0; i < n; ++i) {
-            sbufs[i].release();
-        }
-    }
+    sque_.clear(xq::utils::SendBuf::clear);
 }
 
 
 int
 xq::net::Conn::recv(void* data, size_t dlen) noexcept {
+    if (!valid()) {
+        return -1;
+    }
+
     char *p = (char*)data;
     size_t nleft = dlen;
 
@@ -68,8 +64,11 @@ xq::net::Conn::send(const char* data, size_t len) noexcept {
         return -1;
     }
 
-    // TODO: 跨线程分支存在 Conn 池复用 UAR 风险 (同 Session::send).
-    //   修复方案: 加 std::atomic<uint64_t> gen_ 或 refcount.
+    // TODO: 跨线程 send 仍有 UAR race. valid_ 原子化解决了 release 幂等性,
+    //   但 send() 入口的 valid() check 与末尾 sque_.enqueue 之间存在 TOCTOU 窗口:
+    //   Conn 可能在此期间被 release + 重新 init 成新连接, 新 identity 下的
+    //   enqueue 会污染新连接.
+    //   彻底修复需要 gen/epoch 或 refcount.
     //   临时对策: 调用方保证只在 Sender 线程调用 send().
     if (std::this_thread::get_id() != connector_->sender()->tid()) {
         xq::utils::SendBuf sb;
@@ -187,15 +186,6 @@ xq::net::Conn::send(const char* data, size_t len) noexcept {
         bytes_sent += s;
     }
 
-    if (sbuf_.readable() > 0) {
-        wait_out_ = true;
-        ::epoll_event ev;
-        ev.events = EPOLLET | EPOLLOUT;
-        ev.data.ptr = &ea_;
-        ASSERT(!::epoll_ctl(connector_->sender()->epfd(), EPOLL_CTL_MOD, fd_, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
-    } else {
-        wait_out_ = false;
-    }
-
+    wait_out_ = sbuf_.readable() > 0;
     return bytes_sent;
 }
