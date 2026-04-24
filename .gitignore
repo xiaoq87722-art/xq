@@ -34,6 +34,8 @@
 
 examples/client/client
 examples/server/server
+examples/server/flame.svg
+examples/server/server.prof
 examples/server/logs
 examples/log/logs
 examples/log/log
