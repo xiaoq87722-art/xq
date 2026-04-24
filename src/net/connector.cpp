@@ -118,21 +118,8 @@ xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
         conn->proc_ = procs_[index++ % procs_.size()];
     }
 
-    while (1) {
-        void* buf = xq::utils::malloc(RBUF_MAX);
-        int n = conn->recv(buf, RBUF_MAX);
-        if (n > 0) {
-            conn->proc_->post({conn, buf, n});
-            continue;
-        }
-
-        // n == 0: EAGAIN, 数据读干净, 等下一次 EPOLLIN
-        // n <  0: peer close (EOF) 或错误, 摘连接
-        xq::utils::free(buf);
-        if (n < 0) {
-            remove_conn(conn->fd());
-        }
-        break;
+    if (conn->recv() < 0) {
+        remove_conn(conn->fd());
     }
 }
 

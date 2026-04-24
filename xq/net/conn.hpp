@@ -108,7 +108,7 @@ public:
 
 
     int
-    recv(void* data, size_t dlen) noexcept;
+    recv() noexcept;
 
 
     /**
@@ -130,6 +130,8 @@ private:
 
     /** socket fd */
     SOCKET fd_ { INVALID_SOCKET };
+
+    time_t last_active_ { 0 };
 
     /** 所属 connector */
     Connector* connector_ { nullptr };

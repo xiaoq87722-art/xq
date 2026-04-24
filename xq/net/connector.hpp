@@ -42,6 +42,12 @@ public:
     }
 
 
+    time_t
+    tnow() const noexcept {
+        return tnow_;
+    }
+
+
     /** 获取 sender (发送线程) 对象 */
     Sender*
     sender() noexcept {

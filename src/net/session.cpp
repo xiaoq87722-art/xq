@@ -80,7 +80,11 @@ xq::net::Session::release() noexcept {
 
 int
 xq::net::Session::recv() noexcept {
-    ssize_t total = 0;
+    if (!valid()) {
+        return -1;
+    }
+
+    int total = 0;
 
     while (1) {
         iovec iov[2];
@@ -89,9 +93,10 @@ xq::net::Session::recv() noexcept {
             if (listener_->service()->on_data(this, rbuf_) < 0) {
                 return -1;
             }
+            continue;
         }
 
-        ssize_t n = ::readv(fd_, iov, niov);
+        int n = ::readv(fd_, iov, niov);
         if (n < 0) {
             int err = errno;
             if (err != EAGAIN && err != EWOULDBLOCK) {
@@ -118,12 +123,16 @@ xq::net::Session::recv() noexcept {
     }
 
     last_active_ = reactor_->tnow();
-    return (int)total;
+    return total;
 }
 
 
 int
 xq::net::Session::send(const char* data, size_t len) noexcept {
+    if (!valid()) {
+        return -1;
+    }
+
     // 跨线程分支: 由 active_senders_ + valid_ 双原子保护, 杜绝池复用 UAR race.
     //   1) fetch_add 宣告 "我正在使用这个 Session"
     //   2) 在保护区内再次 check valid_ (seq_cst 配对保证 StoreLoad 顺序)
@@ -161,14 +170,14 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
     sending_.store(false, std::memory_order_release);
 
     xq::utils::SendBuf sbufs[16];
-    ssize_t n = sque_.try_dequeue_bulk(sbufs, 16);
+    int n = sque_.try_dequeue_bulk(sbufs, 16);
 
     // 组 iovec: [sbuf_ 残留] + [sbufs] + [data]
     iovec iov[2 + 16 + 1];
     int niov = sbuf_.read_iov(iov);
     size_t sbuf_bytes = sbuf_.readable();
 
-    for (ssize_t i = 0; i < n; ++i) {
+    for (int i = 0; i < n; ++i) {
         iov[niov].iov_base = sbufs[i].data();
         iov[niov].iov_len  = sbufs[i].len;
         niov++;
@@ -180,15 +189,15 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
         niov++;
     }
 
-    ssize_t bytes_sent = 0;
-    ssize_t sent = 0;
+    int bytes_sent = 0;
+    int sent = 0;
 
     if (niov > 0) {
         sent = ::writev(fd_, iov, niov);
         if (sent < 0) {
             int err = errno;
             if (err != EAGAIN && err != EWOULDBLOCK) {
-                for (ssize_t i = 0; i < n; ++i) sbufs[i].release();
+                for (int i = 0; i < n; ++i) sbufs[i].release();
                 xERROR("send failed: [{}] {}", err, ::strerror(err));
                 return -err;
             }
@@ -207,7 +216,7 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
     }
 
     // 消费 sbufs; 未发完的尾巴吸回 sbuf_
-    for (ssize_t i = 0; i < n; ++i) {
+    for (int i = 0; i < n; ++i) {
         size_t blen = (size_t)sbufs[i].len;
         if (rem >= blen) {
             rem -= blen;
@@ -232,7 +241,7 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
 
     // 首批 16 条之外的 sque_ 条目, 防止唤醒丢失
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
-        for (ssize_t i = 0; i < n; ++i) {
+        for (int i = 0; i < n; ++i) {
             size_t blen = (size_t)sbufs[i].len;
             ASSERT(sbuf_.write(sbufs[i].data(), blen) == blen, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
             sbufs[i].release();
@@ -243,7 +252,7 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
     while (sbuf_.readable() > 0) {
         iovec iov2[2];
         int niov2 = sbuf_.read_iov(iov2);
-        ssize_t s = ::writev(fd_, iov2, niov2);
+        int s = ::writev(fd_, iov2, niov2);
         if (s < 0) {
             int err = errno;
             if (err != EAGAIN && err != EWOULDBLOCK) {

@@ -30,7 +30,7 @@ public:
 
     /** 接收数据时触发 */
     virtual int
-    on_data(Conn* c, const char* data, size_t len) = 0;
+    on_data(Conn* c, xq::utils::RingBuf& rbuf) = 0;
 }; // class IConnEvent;
 
 

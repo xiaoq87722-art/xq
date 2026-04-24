@@ -28,8 +28,7 @@ class Processor {
      */
     struct Message {
         Conn* conn;
-        void* data;
-        int len;
+        xq::utils::RingBuf* rb;
     };
 
 
