@@ -44,7 +44,7 @@ xq::net::Processor::start() noexcept {
 
     // Step 4, 清空 message queue
     mque_.clear([](Message& m) {
-        xq::utils::free(m.data);
+       delete m.rb;
     });
 
     // Step 5, 释放 epoll 和 event
@@ -76,8 +76,8 @@ xq::net::Processor::msg_handle() noexcept {
     while ((n = mque_.try_dequeue_bulk(es, 16)) > 0) {
         for (int i = 0; i < n; ++i) {
             auto& e = es[i];
-            connector_->service()->on_data(e.conn, (char*)e.data, e.len);
-            xq::utils::free(e.data);
+            connector_->service()->on_data(e.conn, *e.rb);
+            delete e.rb;
         }
     }
 }

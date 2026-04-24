@@ -18,12 +18,21 @@ OBJS = $(SRCS:.cpp=.o)
 CXXFLAGS = $(BASE_CXXFLAGS) -DNDEBUG
 LIBS = $(BASE_LIBS)
 
-all: $(TARGET)
+all:
+	@START_TIME=$$(date +%s); \
+	$(MAKE) $(TARGET) --no-print-directory; \
+	END_TIME=$$(date +%s); \
+	ELAPSED=$$(($$END_TIME - $$START_TIME)); \
+	echo "Build release took $$ELAPSED seconds."
 
 # debug: 不带 NDEBUG, 启用 gperftools profiler (火焰图)
 debug:
-	$(MAKE) clean
-	$(MAKE) all CXXFLAGS='$(BASE_CXXFLAGS)' LIBS='$(BASE_LIBS) -lprofiler'
+	@START_TIME=$$(date +%s); \
+	$(MAKE) clean --no-print-directory; \
+	$(MAKE) $(TARGET) CXXFLAGS='$(BASE_CXXFLAGS)' LIBS='$(BASE_LIBS) -lprofiler' --no-print-directory; \
+	END_TIME=$$(date +%s); \
+	ELAPSED=$$(($$END_TIME - $$START_TIME)); \
+	echo "Build debug took $$ELAPSED seconds."
 
 $(TARGET): $(OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS) $(LIBS)

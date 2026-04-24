@@ -165,9 +165,11 @@ void
 xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
 
-    int r = s->recv();
-    if (r < 0) {
-        s->cbs_ = true;
+    int n;
+    if ((n = s->recv()) <= 0) {
+        if (n < 0) {
+            s->cbs_ = true;
+        }
         remove_session(s->fd());
     }
 }

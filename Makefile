@@ -30,8 +30,19 @@ PREFIX ?= /usr/local
 
 all: release
 
-release: $(TARGET_RELEASE)
-debug:   $(TARGET_DEBUG)
+release:
+	@START_TIME=$$(date +%s); \
+	$(MAKE) $(TARGET_RELEASE) --no-print-directory; \
+	END_TIME=$$(date +%s); \
+	ELAPSED=$$(($$END_TIME - $$START_TIME)); \
+	echo "Build release took $$ELAPSED seconds."
+
+debug:
+	@START_TIME=$$(date +%s); \
+	$(MAKE) $(TARGET_DEBUG) --no-print-directory; \
+	END_TIME=$$(date +%s); \
+	ELAPSED=$$(($$END_TIME - $$START_TIME)); \
+	echo "Build debug took $$ELAPSED seconds."
 
 $(OBJ_DIR_R)/%.o: %.cpp
 	@mkdir -p $(dir $@)

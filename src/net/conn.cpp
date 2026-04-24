@@ -36,6 +36,7 @@ xq::net::Conn::recv() noexcept {
         return -1;
     }
 
+    int total = 0;
     while (1) {
         iovec iov[2];
         auto rb = new xq::utils::RingBuf(RBUF_MAX);
@@ -48,6 +49,7 @@ xq::net::Conn::recv() noexcept {
 
         int n = ::readv(fd_, iov, niov);
         if (n < 0) {
+            delete rb;
             int err = errno;
             if (err != EAGAIN && err != EWOULDBLOCK) {
                 if (err == ECONNRESET || err == ETIMEDOUT || err == EPIPE) {
@@ -55,11 +57,9 @@ xq::net::Conn::recv() noexcept {
                 } else {
                     xERROR("readv failed: [{}] {} [{}]", err, ::strerror(err), to_string());
                 }
-                delete rb;
                 return -err;
             }
 
-            proc_->post({ this, rb });
             break;
         } else if (n == 0) {
             delete rb;
@@ -67,10 +67,12 @@ xq::net::Conn::recv() noexcept {
         }
 
         rb->write_commit(n);
+        total += n;
+        proc_->post({ this, rb });
     }
 
     last_active_ = connector_->tnow();
-    return 0;
+    return total;
 }
 
 

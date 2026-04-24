@@ -90,9 +90,12 @@ xq::net::Session::recv() noexcept {
         iovec iov[2];
         int niov = rbuf_.write_iov(iov);
         if (niov == 0) {
+            size_t before = rbuf_.readable();
             if (listener_->service()->on_data(this, rbuf_) < 0) {
                 return -1;
             }
+            // 如果业务没消费数据，缓冲区依然是满的，必须跳出循环防止死循环
+            if (rbuf_.readable() >= before) break; 
             continue;
         }
 
@@ -108,14 +111,12 @@ xq::net::Session::recv() noexcept {
                 return -err;
             }
 
-            if (listener_->service()->on_data(this, rbuf_) < 0) {
+            if (!rbuf_.empty() && listener_->service()->on_data(this, rbuf_) < 0) {
                 return -1;
             }
-
             break;
         } else if (n == 0) {
-            rbuf_.clear();
-            return EOF;
+            return 0;
         }
 
         rbuf_.write_commit(n);
