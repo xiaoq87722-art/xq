@@ -78,8 +78,9 @@ xq::net::Sender::event_handle() noexcept {
             auto& ev = evs[i];
             ASSERT(ev.type == Event::Type::Send, "e.cmd != Event::Command::Send");
             auto c = (Conn*)ev.param;
-            if (c->send(nullptr, 0)) {
-                xERROR("send failed for conn [{}]", c->to_string());
+            int res = c->send(nullptr, 0);
+            if (res < 0) {
+                xERROR("send failed for conn [{}]: {}", c->to_string(), -res);
             }
         }
     }

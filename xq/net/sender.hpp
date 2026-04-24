@@ -68,7 +68,7 @@ public:
     void
     post(Event ev) noexcept {
         if (running()) {
-            ASSERT(evque_.enqueue(std::move(ev)), "队列已满");
+            ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满, 调大 MPSC 容量");
 
             bool expected = false;
             if (processing_.compare_exchange_strong(expected, true)) {
@@ -97,6 +97,11 @@ private:
     std::atomic<int> state_ { STATE_STOPPED };
     std::atomic<bool> processing_ { false };
     std::thread t_;
+
+    /**
+     * @brief 事件队列 (MPSC), 承接 Conn 的跨线程 Send 事件.
+     *        若 enqueue ASSERT 触发, 说明峰值突发超过容量, 需调大 per_shard_size.
+     */
     xq::utils::MPSC<Event> evque_ { 8, 4096 };
 }; // class ConnSender;
 

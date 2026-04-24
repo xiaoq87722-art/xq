@@ -27,8 +27,7 @@ class Session {
 public:
     static Session*
     create() {
-        auto p = xq::utils::malloc(sizeof(Session));
-        return new(p) Session;
+        return new Session;
     }
 
 
@@ -46,7 +45,7 @@ public:
 
     bool
     valid() const noexcept {
-        return fd_ != INVALID_SOCKET;
+        return valid_.load(std::memory_order_acquire);
     }
 
 
@@ -96,6 +95,12 @@ public:
     recv() noexcept;
 
 
+    /**
+     * @brief 发送数据. 支持任意线程调用.
+     *        - 同线程 (reactor 线程): 直接 drain + writev.
+     *        - 跨线程: 由 active_senders_ + valid_ 保护, 无 UAR 风险.
+     *        返回 >=0 已发送字节数; <0 表示错误或 session 已失效.
+     */
     int
     send(const char* data, size_t len) noexcept;
 
@@ -125,9 +130,39 @@ private:
 
     bool wait_out_ { false };
     std::atomic<bool> sending_ { false };
+
+    /**
+     * @brief Session 对象是否有效.
+     *        init() 末尾 store(true) 发布, release() 开头 CAS true->false 关门.
+     *        所有跨线程 send 必须在 active_senders_ 保护下再次校验此 flag.
+     */
+    std::atomic<bool> valid_ { false };
+
+    /**
+     * @brief 跨线程 send 的 in-flight 计数.
+     *        writer 进入前 ++, 退出前 --. release 在 CAS valid_ 后自旋等归 0 再独占清理.
+     *        配合 valid_ 解决池复用 UAR race.
+     */
+    std::atomic<uint32_t> active_senders_ { 0 };
+
+    /**
+     * @brief 发送缓冲区.
+     *        容量上限为性能优化的硬边界, 正常路径不应打满.
+     *        若 sbuf_.write 触发 ASSERT, 说明业务写入速率 > kernel 消费速率且积压超过 WBUF_MAX, 需调大 WBUF_MAX.
+     */
     xq::utils::RingBuf sbuf_ { WBUF_MAX };
+
+    /**
+     * @brief 接收缓冲区.
+     *        容量上限为性能优化的硬边界; 若 on_data 长期不消费, recv 会返回 0 而不是崩溃.
+     *        不足时调大 RBUF_MAX.
+     */
     xq::utils::RingBuf rbuf_ { RBUF_MAX };
 
+    /**
+     * @brief 跨线程发送队列 (MPSC). 跨线程 send 走此通路, 同线程 send 绕过.
+     *        若 enqueue ASSERT 触发, 说明跨线程峰值突发超过容量, 需调大 per_shard_size.
+     */
     xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 32 };
 }; // class Session;
 

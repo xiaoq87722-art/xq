@@ -108,16 +108,16 @@ public:
      */
     void
     post(Message e) noexcept {
-        if (!running()) {
-            return;
-        }
+        if (running()) {
+            ASSERT(mque_.enqueue(std::move(e)), "mque_ 队列已满, 调大 SPSC 容量 N");
 
-        ASSERT(mque_.enqueue(std::move(e)), "队列已满");
-
-        bool expected = false;
-        if (processing_.compare_exchange_strong(expected, true)) {
-            constexpr uint64_t event = 1;
-            ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+            bool expected = false;
+            if (processing_.compare_exchange_strong(expected, true)) {
+                constexpr uint64_t event = 1;
+                if (::write(evfd_, &event, sizeof(event)) != sizeof(event)) {
+                    xERROR("write failed: [{}] {}", errno, ::strerror(errno));
+                }
+            }
         }
     }
 
@@ -155,7 +155,10 @@ private:
     /** 当前线程 */
     std::thread t_;
 
-    /** 消息队列 */
+    /**
+     * @brief 消息队列 (SPSC), Connector 单线程投递.
+     *        若 enqueue ASSERT 触发, 说明 Processor 消费跟不上业务投递速率, 需调大 SPSC 的 N.
+     */
     xq::utils::SPSC<Message> mque_ {};
 }; // class Worker;
 

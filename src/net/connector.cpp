@@ -112,20 +112,28 @@ void
 xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
     static uint32_t index = 0;
 
-    // TODO: 数据没有读干净
     auto conn = (Conn*)ea->data;
-    void* buf = xq::utils::malloc(RBUF_MAX);
-    int n = conn->recv(buf, RBUF_MAX);
-    if (n <= 0) {
-        remove_conn(conn->fd());
-        xq::utils::free(buf);
-        return;
-    }
 
     if (conn->proc_ == nullptr) {
         conn->proc_ = procs_[index++ % procs_.size()];
     }
-    conn->proc_->post({conn, buf, n});
+
+    while (1) {
+        void* buf = xq::utils::malloc(RBUF_MAX);
+        int n = conn->recv(buf, RBUF_MAX);
+        if (n > 0) {
+            conn->proc_->post({conn, buf, n});
+            continue;
+        }
+
+        // n == 0: EAGAIN, 数据读干净, 等下一次 EPOLLIN
+        // n <  0: peer close (EOF) 或错误, 摘连接
+        xq::utils::free(buf);
+        if (n < 0) {
+            remove_conn(conn->fd());
+        }
+        break;
+    }
 }
 
 
@@ -150,6 +158,9 @@ xq::net::Connector::event_handle() noexcept {
 
 void
 xq::net::Connector::add_conn(Conn* conn) noexcept {
+    // 前提: 进程 ulimit 控制在 MAX_CONN 以内, fd 值必然 < MAX_CONN.
+    ASSERT(conn->fd() >= 0 && conn->fd() < MAX_CONN, "fd {} 越界, 检查 ulimit 或 MAX_CONN", conn->fd());
+
     ::epoll_event evr;
     evr.data.ptr = conn->ea();
     evr.events = EPOLLIN | EPOLLET;

@@ -129,10 +129,8 @@ xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
 
     // Step 9: 清理 sessions
     for (i = 0; i < MAX_CONN; ++i) {
-        auto s = sessions_[i];
-        if (s) {
-            s->~Session();
-            xq::utils::free(s);
+        if (sessions_[i]) {
+            delete sessions_[i];
             sessions_[i] = nullptr;
         }
     }

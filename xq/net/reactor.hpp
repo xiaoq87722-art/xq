@@ -232,7 +232,10 @@ private:
     /** 当前线程 */
     std::thread t_ {};
 
-    /** event queue */
+    /**
+     * @brief 事件队列 (MPSC), 承接 Accept / Send / Broadcast 事件.
+     *        若 enqueue ASSERT 触发, 说明峰值突发超过容量, 需调大 per_shard_size.
+     */
     xq::utils::MPSC<Event> evque_ { 8, 4096 };
 
     /** 会话池 */

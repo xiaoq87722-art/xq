@@ -4,26 +4,29 @@
 
 xq::net::Conn::~Conn() noexcept {
     release();
-    sque_.clear(xq::utils::SendBuf::clear);
 }
 
 
 void
 xq::net::Conn::init(const char* host, Connector* r) noexcept {
-    bool expected = false;
-    if (!valid_.compare_exchange_strong(expected, true)) {
-        return;
-    }
+    // 前置条件: 处于 released 状态, active_senders_ 已被 release 排空.
+    ASSERT(!valid_.load(std::memory_order_relaxed), "Conn::init called on valid conn");
 
+    // Step 1, 初始化所有字段 (此时 valid_=false, 跨线程 writer 无法进入, 独占写入安全)
     fd_ = tcp_connect(host);
     ASSERT(fd_ != INVALID_SOCKET, "tcp_connect failed");
     connector_ = r;
     wait_out_ = false;
     sending_.store(false, std::memory_order_relaxed);
+    proc_ = nullptr;
 
     sbuf_.clear();
+    // sque_ 由 release 负责清空, 此处兜底以防未经 release 的首次 init.
     sque_.clear(xq::utils::SendBuf::clear);
     host_ = host;
+
+    // Step 2, 发布新 identity. 此后跨线程 writer 可进入.
+    valid_.store(true, std::memory_order_release);
 }
 
 
@@ -48,7 +51,7 @@ xq::net::Conn::recv(void* data, size_t dlen) noexcept {
 
             return dlen - nleft;
         } else if (n == 0) {
-            return 0;
+            return EOF;
         } else {
             p += n;
             nleft -= n;
@@ -61,31 +64,37 @@ xq::net::Conn::recv(void* data, size_t dlen) noexcept {
 
 int
 xq::net::Conn::send(const char* data, size_t len) noexcept {
-    if (!valid()) {
-        return -1;
-    }
-
-    // TODO: 跨线程 send 仍有 UAR race. valid_ 原子化解决了 release 幂等性,
-    //   但 send() 入口的 valid() check 与末尾 sque_.enqueue 之间存在 TOCTOU 窗口:
-    //   Conn 可能在此期间被 release + 重新 init 成新连接, 新 identity 下的
-    //   enqueue 会污染新连接.
-    //   彻底修复需要 gen/epoch 或 refcount.
-    //   临时对策: 调用方保证只在 Sender 线程调用 send().
+    // 跨线程分支: 由 active_senders_ + valid_ 双原子保护, 杜绝池复用 UAR race.
+    //   1) fetch_add 宣告 "我正在使用这个 Conn"
+    //   2) 在保护区内再次 check valid_ (seq_cst 配对保证 StoreLoad 顺序)
+    //   3) 整个操作期间 release 会 spin 等 active_senders_ 归零, 不会清掉本 writer 的数据
     if (std::this_thread::get_id() != connector_->sender()->tid()) {
+        active_senders_.fetch_add(1, std::memory_order_seq_cst);
+        if (!valid_.load(std::memory_order_seq_cst)) {
+            active_senders_.fetch_sub(1, std::memory_order_release);
+            return -1;
+        }
+
         xq::utils::SendBuf sb;
         sb.fill(data, len);
-        ASSERT(sque_.enqueue(std::move(sb)), "sque_ 队列已满");
+        ASSERT(sque_.enqueue(std::move(sb)), "sque_ 队列已满, 调大 MPSC 容量");
 
         bool expected = false;
         if (sending_.compare_exchange_strong(expected, true)) {
             connector_->sender()->post({ Event::Type::Send, this });
         }
 
+        active_senders_.fetch_sub(1, std::memory_order_release);
         return 0;
     }
 
+    // 同线程分支: 本线程即 Sender, valid_ 只会被本线程修改, relaxed 读即可.
+    if (!valid_.load(std::memory_order_relaxed)) {
+        return -1;
+    }
+
     if (wait_out_ && data && len > 0) {
-        ASSERT(sbuf_.write(data, len) == len, "RingBuf 写入失败，剩余空间不足");
+        ASSERT(sbuf_.write(data, len) == len, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
         return 0;
     }
 
@@ -144,7 +153,7 @@ xq::net::Conn::send(const char* data, size_t len) noexcept {
             rem -= blen;
         } else {
             size_t left = blen - rem;
-            ASSERT(sbuf_.write(sbufs[i].data() + rem, left) == left, "RingBuf 写入失败，剩余空间不足");
+            ASSERT(sbuf_.write(sbufs[i].data() + rem, left) == left, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
             rem = 0;
         }
         sbufs[i].release();
@@ -156,7 +165,7 @@ xq::net::Conn::send(const char* data, size_t len) noexcept {
             rem -= len;
         } else {
             size_t left = len - rem;
-            ASSERT(sbuf_.write(data + rem, left) == left, "RingBuf 写入失败，剩余空间不足");
+            ASSERT(sbuf_.write(data + rem, left) == left, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
             rem = 0;
         }
     }
@@ -165,7 +174,7 @@ xq::net::Conn::send(const char* data, size_t len) noexcept {
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
         for (ssize_t i = 0; i < n; ++i) {
             size_t blen = (size_t)sbufs[i].len;
-            ASSERT(sbuf_.write(sbufs[i].data(), blen) == blen, "RingBuf 写入失败，剩余空间不足");
+            ASSERT(sbuf_.write(sbufs[i].data(), blen) == blen, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
             sbufs[i].release();
         }
     }

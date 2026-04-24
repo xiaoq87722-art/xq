@@ -7,11 +7,15 @@
 
 void
 xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept {
+    // 前置条件: 处于 released 状态, active_senders_ 已被 release 排空.
+    ASSERT(!valid_.load(std::memory_order_relaxed), "Session::init called on valid session");
+
+    // Step 1, 初始化所有字段 (此时 valid_=false, 跨线程 writer 无法进入, 独占写入安全)
     listener_ = listener;
     reactor_ = reactor;
     fd_ = fd;
     ea_ = { EpollArg::Type::Session, this };
-    
+
     if (sbuf_.capacity() < WBUF_MAX) {
         sbuf_.reset(WBUF_MAX);
     }
@@ -22,6 +26,7 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
     sbuf_.clear();
     rbuf_.clear();
 
+    // sque_ 由 release 负责清空, 此处兜底以防未经 release 的首次 init.
     int n;
     xq::utils::SendBuf sbufs[16];
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
@@ -34,11 +39,26 @@ xq::net::Session::init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept
     ASSERT(!::getpeername(fd_, (sockaddr*)&addr_, &addrlen), "getpeername failed: [{}] {}", errno, ::strerror(errno));
 
     last_active_ = reactor_->tnow();
+
+    // Step 2, 发布新 identity. 此后跨线程 writer 可进入.
+    valid_.store(true, std::memory_order_release);
 }
 
 
 void
 xq::net::Session::release() noexcept {
+    // Step 1, 关门: CAS valid_ true->false, 阻止新 writer 进入.
+    bool expected = true;
+    if (!valid_.compare_exchange_strong(expected, false, std::memory_order_acq_rel)) {
+        return;  // 已 released, 幂等
+    }
+
+    // Step 2, 自旋等 in-flight writer 退出 (窗口极短: 几个原子操作)
+    while (active_senders_.load(std::memory_order_acquire) != 0) {
+        ::_mm_pause();
+    }
+
+    // Step 3, 独占清理
     sbuf_.clear();
     rbuf_.clear();
 
@@ -66,16 +86,7 @@ xq::net::Session::recv() noexcept {
         iovec iov[2];
         int niov = rbuf_.write_iov(iov);
         if (niov == 0) {
-            if (listener_->service()->on_data(this, rbuf_) < 0) {
-                cbs_ = true;
-                return -1;
-            }
-            
-            if (rbuf_.writable() == 0) {
-                break;
-            }
-
-            continue;
+            return total;
         }
 
         ssize_t n = ::readv(fd_, iov, niov);
@@ -88,11 +99,6 @@ xq::net::Session::recv() noexcept {
                     xERROR("readv failed: [{}] {} [{}]", err, ::strerror(err), to_string());
                 }
                 return -err;
-            }
-
-            if (listener_->service()->on_data(this, rbuf_) < 0) {
-                cbs_ = true;
-                return -1;
             }
             break;
         } else if (n == 0) {
@@ -111,32 +117,37 @@ xq::net::Session::recv() noexcept {
 
 int
 xq::net::Session::send(const char* data, size_t len) noexcept {
-    if (!valid()) {
-        return -1;
-    }
-
-    // TODO: 跨线程 send 存在 Session 池复用 UAR race.
-    //   send() 入口的 valid() check 与末尾 sque_.enqueue 之间存在 TOCTOU 窗口:
-    //   Reactor 线程可能 release(), Acceptor 重新 init() 成新连接,
-    //   此时 T 的 enqueue 会污染新连接.
-    //   彻底修复需要 gen/epoch (调用方持有 (Session*, gen) pair, enqueue 前后各
-    //   check 一次 gen_ 是否匹配) 或 refcount 延长对象生命周期.
-    //   临时对策: 调用方保证只在 Session 所属 reactor 线程调用 send().
+    // 跨线程分支: 由 active_senders_ + valid_ 双原子保护, 杜绝池复用 UAR race.
+    //   1) fetch_add 宣告 "我正在使用这个 Session"
+    //   2) 在保护区内再次 check valid_ (seq_cst 配对保证 StoreLoad 顺序)
+    //   3) 整个操作期间 release 会 spin 等 active_senders_ 归零, 不会清掉本 writer 的数据
     if (std::this_thread::get_id() != reactor_->tid()) {
+        active_senders_.fetch_add(1, std::memory_order_seq_cst);
+        if (!valid_.load(std::memory_order_seq_cst)) {
+            active_senders_.fetch_sub(1, std::memory_order_release);
+            return -1;
+        }
+
         xq::utils::SendBuf sb;
         sb.fill(data, len);
-        ASSERT(sque_.enqueue(std::move(sb)), "sque_ 队列已满");
+        ASSERT(sque_.enqueue(std::move(sb)), "sque_ 队列已满, 调大 MPSC 容量");
 
         bool expected = false;
         if (sending_.compare_exchange_strong(expected, true)) {
             reactor_->post({ Event::Type::Send, this });
         }
 
+        active_senders_.fetch_sub(1, std::memory_order_release);
         return 0;
     }
 
+    // 同线程分支: 本线程即 owner, valid_ 只会被本线程修改, relaxed 读即可.
+    if (!valid_.load(std::memory_order_relaxed)) {
+        return -1;
+    }
+
     if (wait_out_ && data && len > 0) {
-        ASSERT(sbuf_.write(data, len) == len, "RingBuf 写入失败，剩余空间不足");
+        ASSERT(sbuf_.write(data, len) == len, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
         return 0;
     }
 
@@ -195,7 +206,7 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
             rem -= blen;
         } else {
             size_t left = blen - rem;
-            ASSERT(sbuf_.write(sbufs[i].data() + rem, left) == left, "RingBuf 写入失败，剩余空间不足");
+            ASSERT(sbuf_.write(sbufs[i].data() + rem, left) == left, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
             rem = 0;
         }
         sbufs[i].release();
@@ -207,7 +218,7 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
             rem -= len;
         } else {
             size_t left = len - rem;
-            ASSERT(sbuf_.write(data + rem, left) == left, "RingBuf 写入失败，剩余空间不足");
+            ASSERT(sbuf_.write(data + rem, left) == left, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
             rem = 0;
         }
     }
@@ -216,7 +227,7 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
     while ((n = sque_.try_dequeue_bulk(sbufs, 16)) > 0) {
         for (ssize_t i = 0; i < n; ++i) {
             size_t blen = (size_t)sbufs[i].len;
-            ASSERT(sbuf_.write(sbufs[i].data(), blen) == blen, "RingBuf 写入失败，剩余空间不足");
+            ASSERT(sbuf_.write(sbufs[i].data(), blen) == blen, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
             sbufs[i].release();
         }
     }

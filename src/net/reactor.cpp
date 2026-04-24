@@ -13,13 +13,15 @@
 void
 xq::net::Reactor::post(Event ev) noexcept {
     if (running()) {
-        ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
+        ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满, 调大 MPSC 容量");
 
-        bool processing = false;
-        if (processing_.compare_exchange_strong(processing, true)) {
+        bool expected = false;
+        if (processing_.compare_exchange_strong(expected, true)) {
             static constexpr uint64_t event = 1;
-            ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
-        } 
+            if (::write(evfd_, &event, sizeof(event)) != sizeof(event)) {
+                xERROR("write failed: [{}] {}", errno, ::strerror(errno));
+            }
+        }
     } 
 }
 
@@ -150,8 +152,16 @@ void
 xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
 
-    int n = s->recv();
-    if (n <= 0) {
+    int n;
+    while((n = s->recv()) > 0) {
+        if (s->listener_->service()->on_data(s, s->rbuf()) < 0) {
+            s->cbs_ = true;
+            remove_session(s->fd());
+            return;
+        }
+    }
+
+    if (n < 0) {
         if (n != EOF) {
             xINFO("出现错误，关闭连接 [{}]", s->to_string());
         }
@@ -199,8 +209,11 @@ xq::net::Reactor::on_accept(void* params) noexcept {
 void
 xq::net::Reactor::on_send(void* arg) noexcept {
     auto s = (Session*)arg;
-    if (s->send(nullptr, 0)) {
-        xERROR("send failed for session [{}]", s->to_string());
+    int res = s->send(nullptr, 0);
+    if (res < 0) {
+        xERROR("send failed for session [{}]: {}", s->to_string(), -res);
+        s->cbs_ = true;
+        remove_session(s->fd());
     }
 }
 
