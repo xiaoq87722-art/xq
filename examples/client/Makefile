@@ -1,30 +1,16 @@
 .PHONY: clean all run
 
-CXX = g++
-CXXFLAGS = -std=c++20 -O3 -DNDEBUG -march=native -flto=auto
-INCLUDE = -I../../
-LDFLAGS = -L/usr/local/lib -L/usr/local/lib/mimalloc-3.2
-LIBS = -lspdlog -luring -lmimalloc
-
-TARGET = client
-
-SRCS = main.cpp \
-       $(wildcard ../../src/net/*.cpp) \
-       $(wildcard ../../src/utils/*.cpp)
-
-OBJS = $(SRCS:.cpp=.o)
+CXX      = g++
+CXXFLAGS = -std=c++20 -O3 -DNDEBUG -march=native
+TARGET   = client
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS)
-	$(CXX) -o $@ $^ $(LDFLAGS) $(LIBS)
-	rm -f $(OBJS)
-
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) $(INCLUDE) -c -o $@ $<
+$(TARGET): main.cpp
+	$(CXX) $(CXXFLAGS) -o $@ $<
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(TARGET)
 
 run: $(TARGET)
 	./$(TARGET)

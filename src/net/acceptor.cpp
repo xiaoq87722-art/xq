@@ -1,16 +1,20 @@
-#include "xq/net/acceptor.hpp"
-#include "xq/net/reactor.hpp"
-#include "xq/utils/signal.h"
-#include "xq/net/net.in.h"
 #include <immintrin.h>
+#include <netinet/tcp.h>
+
+
 #include <cstring>
+
+
+#include "xq/net/acceptor.hpp"
 #include "xq/net/conf.hpp"
+#include "xq/utils/signal.h"
 
 
 static void
-signal_handle(uv_signal_t* handle, int) {
-    auto* a = (xq::net::Acceptor*)handle->loop->data;
-    a->stop();
+signal_handle(int sig) {
+    if (sig == SIGINT || sig == SIGTERM) {
+        xq::net::Acceptor::instance()->stop();
+    }
 }
 
 
@@ -22,128 +26,190 @@ next_reactor(std::vector<xq::net::Reactor*>& reactors) noexcept {
 
 
 void
-xq::net::Acceptor::on_accept(uv_poll_t* server, int status, int events) noexcept {
-    if (status < 0) {
-        xERROR("on_new_connection failed: [{}] {}", status, ::uv_strerror(status));
+xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
+    int stopped_state = STATE_STOPPED;
+    if (!state_.compare_exchange_strong(stopped_state, STATE_STARTING)) {
         return;
     }
 
-    if (events & UV_READABLE) {
-        while (1) {
-            auto l = (xq::net::Listener*)server->data;
-            auto cfd = l->accept();
-            if (cfd == INVALID_SOCKET) {
-                return;
-            }
+    int64_t nr = std::thread::hardware_concurrency() - 2;
+    if (nr < 1) {
+        nr = 1;
+    }
 
-            if (cfd >= MAX_CONN) {
-                xERROR("too many connections");
-                ::close(cfd);
-                continue;
-            }
+    // Step 1, 注册信号事件
+    xq::utils::regist_signal(signal_handle, { SIGINT, SIGTERM });
 
-            auto r = next_reactor(Acceptor::instance()->reactors_);
-            auto arg = (OnAcceptArg*)xq::utils::malloc(sizeof(OnAcceptArg));
-            arg->fd = cfd;
-            arg->l = l;
-            r->post({ EVENT_ON_ACCEPT, (void*)arg });
+    // Step 2, 启动 reactor 线程
+    for (uint32_t i = 0; i < nr; ++i) {
+        Reactor* r = new Reactor();
+        r->run();
+        reactors_.emplace_back(r);
+    
+        while(!r->running()) {
+            _mm_pause();
         }
     }
-}
 
+    // Step 3, 初始化 epoll 和 eventfd
+    EpollArg ea { EpollArg::Type::Event, this };
+    init_epoll_event(&epfd_, &evfd_, &ea);
 
-void
-xq::net::Acceptor::run(const std::vector<Listener*>& listeners) noexcept {
-    int stopped_state = STATE_STOPPED;
+    // Step 4, 开启监听
+    constexpr int MAX_EVENT = 16;
+    ::epoll_event ev, events[MAX_EVENT];
 
-    do {
-        if (!state_.compare_exchange_strong(stopped_state, STATE_STARTING)) {
+    for (auto l: listeners) {
+        l->start(this);
+        ev.events = EPOLLIN | EPOLLET;
+        ev.data.ptr = l->arg();
+        ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, l->fd(), &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
+    }
+
+    int err, nfds, i;
+    state_.store(STATE_RUNNING);
+
+    // Step 5， IO LOOP
+    while (running()) {
+        err = 0;
+        nfds = ::epoll_wait(epfd_, events, MAX_EVENT, -1);
+        if (nfds < 0) {
+            err = errno;
+            if (err == EINTR) {
+                continue;
+            }
+            xERROR("epoll_wait failed: [{}] {}", err, ::strerror(err));
             break;
         }
 
-        loop_ = (uv_loop_t*)xq::utils::malloc(sizeof(uv_loop_t), true);
-        int r = ::uv_loop_init(loop_);
-        ASSERT(r == 0, "uv_loop_init failed: [{}] {}", r, ::uv_strerror(r));
-        loop_->data = this;
+        for (i = 0; i < nfds; ++i) {
+            auto& ev = events[i];
+            auto ea = (EpollArg*)ev.data.ptr;
 
-        uv_signal_t sigint, sigterm;
-        ::uv_signal_init(loop_, &sigint);
-        ::uv_signal_init(loop_, &sigterm);
+            // ---------------------------
+            // 在 acceptor 的 epoll 中 EpollArg 只有两种类型
+            //  * Listener: 用于监听
+            //  * Event: 自定义事件
+            // ---------------------------
+            switch (ea->type) {
+                case EpollArg::Type::Listener: {
+                    listener_handle(ea);
+                } break;
+            
+                case EpollArg::Type::Event: {
+                    event_handle(ea);
+                } break;
 
-        ::uv_signal_start(&sigint, signal_handle, SIGINT);
-        ::uv_signal_start(&sigterm, signal_handle, SIGTERM);
-
-        uint32_t nr = std::thread::hardware_concurrency();
-        if (nr > 2) {
-            nr -= 2;
+                default: {
+                    xFATAL("Acceptor 不应处理 EpollArg::Type {}", (int)ea->type);
+                } break;
+            } // switch (ea->type);
         }
+    }
 
-        for (uint32_t i = 0; i < nr; ++i) {
-            Reactor* r = new Reactor();
-            reactors_.emplace_back(r);
-            threads_.emplace_back(std::thread(std::bind(&xq::net::Reactor::run, r)));
+    // Step 6, 停止监听
+    for (auto l: listeners) {
+        l->stop();
+    }
 
-            while(!r->running()) {
-                _mm_pause();
-            }
+    // Step 7, 释放 epoll 和 eventfd
+    release_epoll_event(&epfd_, &evfd_);
+
+    // Step 8, 停止 reactor
+    for (auto& r: reactors_) {
+        r->stop();
+    }
+
+    for (auto r: reactors_) {
+        r->join();
+        delete r;
+    }
+
+    reactors_.clear();
+
+    // Step 9: 清理 sessions
+    for (i = 0; i < MAX_CONN; ++i) {
+        auto s = sessions_[i];
+        if (s) {
+            s->~Session();
+            xq::utils::free(s);
+            sessions_[i] = nullptr;
         }
+    }
 
-        for (auto l: listeners) {
-            l->start(this, on_accept);
-        }
+    state_.store(STATE_STOPPED);
+}
 
-        state_.exchange(STATE_RUNNING);
-        r = ::uv_run(loop_, UV_RUN_DEFAULT);
-        ASSERT(r == 0, "uv_run has {} active left", r);
 
-        for (uint32_t i = 0; i < nr; ++i) {
-            Reactor* r = reactors_[i];
-            r->stop();
-            auto& t = threads_[i];
-            if (t.joinable()) {
-                t.join();
-            }
-            delete r;
-        }
+int
+xq::net::Acceptor::broadcast(const char* data, size_t len) noexcept {
+    ASSERT(data && len > 0, "参数错误");
 
-        r = ::uv_loop_close(loop_);
-        ASSERT(r == 0, "uv_loop_close failed: [{}] {}", r, ::uv_strerror(r));
-        xq::utils::free(loop_);
+    for (auto& r: reactors_) {
+        EBroadcastParam* arg = (EBroadcastParam*)xq::utils::malloc(sizeof(EBroadcastParam) + len);
+        ::memcpy(arg->data, data, len);
+        arg->len = len;
+        r->post({ Event::Type::Broadcast, arg });
+    }
 
-        reactors_.clear();
-        threads_.clear();
-
-        for (int i = 0; i < MAX_CONN; ++i) {
-            auto s = sessions_[i];
-            if (s) {
-                if (s->data) {
-                    xq::utils::free(s->data);
-                }
-                xq::utils::free(s);
-                sessions_[i] = nullptr;
-            }
-        }
-
-    } while(0);
-
-    int state_stopping = STATE_STOPPING;
-    state_.compare_exchange_strong(state_stopping, STATE_STOPPED);
+    return 0;
 }
 
 
 void
-xq::net::Acceptor::stop() noexcept {
-    int state_running = STATE_RUNNING;
-    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
-        ::uv_walk(loop_, [](uv_handle_t* handle, void*) {
-            if (!::uv_is_closing(handle)) {
-                if (handle->type == UV_POLL && handle->data) {
-                    auto l = (xq::net::Listener*)handle->data;
-                    l->stop();
-                } else {
-                    ::uv_close(handle, nullptr);
-                }
+xq::net::Acceptor::event_handle(EpollArg* ea) noexcept {
+    // -------------------------------------------------------
+    //  Acceptor::event_handle 只处理停止消息.
+    //    在停止的时候已经修改了 state_ 字段, 所以在这里只需要从 eventfd 中读完数据即可.
+    // -------------------------------------------------------
+    int n;
+    uint64_t val;
+
+    while (1) {
+        n = ::read(evfd_, &val, sizeof(val));
+        if (n < 0) {
+            int err = errno;
+            if (err != EAGAIN && err != EWOULDBLOCK) {
+                xERROR("read failed: [{}] {}", err, ::strerror(err));
+                return;
             }
-        }, nullptr);
+            break;
+        }
     }
+}
+
+
+void
+xq::net::Acceptor::listener_handle(EpollArg* ea) noexcept {
+    auto l = (Listener*)ea->data;
+
+    while (1) {
+        SOCKET cfd = l->accept();
+        if (cfd == INVALID_SOCKET) {
+            int err = errno;
+            if (err != EAGAIN && err != EWOULDBLOCK) {
+                stop();
+            }
+            break;
+        }
+
+        if (cfd >= MAX_CONN) {
+            xERROR("too many connections, rejecting [{}]", cfd);
+            ::close(cfd);
+            continue;
+        }
+
+        const auto rcv_buf = Conf::instance()->rcv_buf();
+        const auto snd_buf = Conf::instance()->snd_buf();
+        constexpr int nodelay = 1;
+        ASSERT(!::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)), "setsockopt failed: [{}] {}", errno, ::strerror(errno));
+        ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_RCVBUF, &rcv_buf, sizeof(rcv_buf)), "setsockopt SO_RCVBUF failed: [{}] {}", errno, ::strerror(errno));
+        ASSERT(!::setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &snd_buf, sizeof(snd_buf)), "setsockopt SO_SNDBUF failed: [{}] {}", errno, ::strerror(errno));
+
+        EAcceptParam* arg = (EAcceptParam*)xq::utils::malloc(sizeof(EAcceptParam));
+        arg->fd = cfd;
+        arg->l = l;
+
+        next_reactor(reactors_)->post({ Event::Type::Accept, arg });
+    }   
 }

@@ -18,22 +18,20 @@ namespace xq::utils {
  * @tparam T    元素类型，需支持移动语义
  * @tparam N    队列容量，必须是 2 的幂次方
  */
-template<typename T, size_t N>
+template<typename T, size_t N = 4096>
 class SPSC {
     static_assert(N > 0 && (N & (N - 1)) == 0, "N 必须是 2 的幂次方");
 
     static constexpr size_t MASK = N - 1;
+    static constexpr size_t SLOT_ALIGN = 64;
 
-    struct Slot {
-        std::atomic<size_t> seq { 0 };
+    // 每个 slot 独占一条 cache line，避免生产者/消费者之间的 false sharing
+    struct alignas(SLOT_ALIGN) Slot {
         T data;
     };
 
 public:
     SPSC() noexcept {
-        for (size_t i = 0; i < N; ++i) {
-            slots_[i].seq.store(i, std::memory_order_relaxed);
-        }
         head_.store(0, std::memory_order_relaxed);
         tail_.store(0, std::memory_order_relaxed);
     }
@@ -55,17 +53,16 @@ public:
     bool
     enqueue(T&& val) noexcept {
         size_t head = head_.load(std::memory_order_relaxed);
-        Slot& slot  = slots_[head & MASK];
-        size_t seq  = slot.seq.load(std::memory_order_acquire);
 
-        if (seq != head) {
-            // 队列满
-            return false;
+        if (head - cached_tail_ >= N) {
+            cached_tail_ = tail_.load(std::memory_order_acquire);
+            if (head - cached_tail_ >= N) {
+                return false;
+            }
         }
 
-        slot.data = std::move(val);
-        slot.seq.store(head + 1, std::memory_order_release);
-        head_.store(head + 1, std::memory_order_relaxed);
+        slots_[head & MASK].data = std::move(val);
+        head_.store(head + 1, std::memory_order_release);
         return true;
     }
 
@@ -77,33 +74,50 @@ public:
     bool
     dequeue(T& val) noexcept {
         size_t tail = tail_.load(std::memory_order_relaxed);
-        Slot& slot  = slots_[tail & MASK];
-        size_t seq  = slot.seq.load(std::memory_order_acquire);
 
-        if (seq != tail + 1) {
-            // 队列空
-            return false;
+        if (tail == cached_head_) {
+            cached_head_ = head_.load(std::memory_order_acquire);
+            if (tail == cached_head_) {
+                return false;
+            }
         }
 
-        val = std::move(slot.data);
-        slot.seq.store(tail + N, std::memory_order_release);
-        tail_.store(tail + 1, std::memory_order_relaxed);
+        val = std::move(slots_[tail & MASK].data);
+        tail_.store(tail + 1, std::memory_order_release);
         return true;
+    }
+
+
+    size_t
+    try_dequeue_bulk(T* buf, size_t max) noexcept {
+        size_t tail  = tail_.load(std::memory_order_relaxed);
+        size_t head  = head_.load(std::memory_order_acquire);
+        size_t count = std::min(head - tail, max);
+
+        for (size_t i = 0; i < count; ++i) {
+            buf[i] = std::move(slots_[(tail + i) & MASK].data);
+        }
+
+        tail_.store(tail + count, std::memory_order_release);
+        return count;
     }
 
 
     bool
     empty() const noexcept {
-        size_t tail = tail_.load(std::memory_order_acquire);
-        size_t seq  = slots_[tail & MASK].seq.load(std::memory_order_acquire);
-        return seq != tail + 1;
+        return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
     }
 
 private:
     Slot slots_[N];
 
-    alignas(64) std::atomic<size_t> head_;  // 生产者写
-    alignas(64) std::atomic<size_t> tail_;  // 消费者写
+    // 生产者 cache line：head_ 与 cached_tail_ 同行，producer 访问时只需一次 cache load
+    alignas(64) std::atomic<size_t> head_;  // 生产者写，消费者读
+    size_t cached_tail_ { 0 };              // 仅生产者访问
+
+    // 消费者 cache line：tail_ 与 cached_head_ 同行
+    alignas(64) std::atomic<size_t> tail_;  // 消费者写，生产者读
+    size_t cached_head_ { 0 };              // 仅消费者访问
 }; // class SPSC;
 
 
