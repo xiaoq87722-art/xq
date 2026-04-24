@@ -17,10 +17,19 @@ typedef int SOCKET;
 #define INVALID_SOCKET (-1)
 
 
+/** 
+ * @brief 读缓冲区大小, 用于 recv 操作时的 RingBuf 大小
+ */
 constexpr int RBUF_MAX = 1024 * 128;
+
+
+/**
+ * @brief 写缓冲区大小, 用于 send 操作时的 RingBuf 大小
+ */
 constexpr int WBUF_MAX = 1024 * 128;
 
 
+// ---------------------- 状态 ----------------------
 constexpr int STATE_STOPPED = 0;  // 停止状态
 constexpr int STATE_STARTING = 1; // 正在开启
 constexpr int STATE_RUNNING = 2;  // 运行状态
@@ -35,13 +44,16 @@ namespace xq::net {
  */
 struct EpollArg {
     enum class Type {
-        Event = 1,
-        Listener = 2,
-        Session = 3,
-        Conn = 4,
+        Event = 1,    // 来自 event fd 的通知
+        Listener = 2, // 来自 Listen fd 的通知
+        Session = 3,  // 来自 Session fd 的通知
+        Conn = 4,     // 来自 Conn fd 的通知
     };
 
+    /** 参数类型 */
     Type type;
+
+    /** 参数数据 */
     void* data;
 };
 

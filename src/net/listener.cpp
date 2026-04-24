@@ -8,9 +8,7 @@ xq::net::Listener::start(Acceptor* acceptor) noexcept {
     acceptor_ = acceptor;
     fd_ = xq::net::tcp_listen(host_.c_str());
     ASSERT(fd_ != INVALID_SOCKET, "tcp_listen failed: [{}] {}", errno, ::strerror(errno));
+    ASSERT(::listen(fd_, SOMAXCONN) == 0, "listen failed: [{}] {}", errno, ::strerror(errno));
 
-    int r = ::listen(fd_, SOMAXCONN);
-    ASSERT(r == 0, "listen failed: [{}] {}", errno, ::strerror(errno));
-
-    service_->on_start(this);
+    le_->on_start(this);
 }

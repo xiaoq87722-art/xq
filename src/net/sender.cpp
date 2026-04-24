@@ -77,7 +77,7 @@ xq::net::Sender::event_handle() noexcept {
         for (int i = 0; i < n; ++i) {
             auto& ev = evs[i];
             ASSERT(ev.type == Event::Type::Send, "e.cmd != Event::Command::Send");
-            auto c = (Conn*)ev.data;
+            auto c = (Conn*)ev.param;
             c->send(nullptr, 0);
         }
     }

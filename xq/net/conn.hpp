@@ -38,11 +38,11 @@ public:
     ~Conn() noexcept;
 
 
-    /** 
+    /**
      * @brief 初始化 conn
-     * 
-     * @param host: 服务端地址, ip:port
-     *        r:    所属 connector
+     *
+     * @param host 服务端地址, ip:port
+     * @param r    所属 connector
      */
     void 
     init(const char* host, Connector* r) noexcept;

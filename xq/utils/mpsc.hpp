@@ -125,8 +125,8 @@ class MPSC {
 
 public:
     /**
-     * @param shard_count 分片数，必须是 2 的幂（如 4, 8, 16）
-     * @param per_shard_size 每个分片的容量，必须是 2 的幂
+     * @param shard_count 分片数, 必须是 2 的幂(如 4, 8, 16)
+     * @param per_shard_size 每个分片的容量, 必须是 2 的幂
      */
     explicit MPSC(size_t shard_count, size_t per_shard_size) noexcept
         : shard_mask_(shard_count - 1) {

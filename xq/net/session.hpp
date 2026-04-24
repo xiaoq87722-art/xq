@@ -97,7 +97,7 @@ public:
 
 
     int
-    send(const Reactor* r, const char* data, size_t len) noexcept;
+    send(const char* data, size_t len) noexcept;
 
 
     int

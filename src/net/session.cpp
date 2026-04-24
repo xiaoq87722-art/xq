@@ -66,8 +66,7 @@ xq::net::Session::recv() noexcept {
         iovec iov[2];
         int niov = rbuf_.write_iov(iov);
         if (niov == 0) {
-            Context ctx(reactor_, this);
-            if (listener_->service()->on_data(&ctx, rbuf_) < 0) {
+            if (listener_->service()->on_data(this, rbuf_) < 0) {
                 cbs_ = true;
                 return -1;
             }
@@ -91,8 +90,7 @@ xq::net::Session::recv() noexcept {
                 return -err;
             }
 
-            Context ctx(reactor_, this);
-            if (listener_->service()->on_data(&ctx, rbuf_) < 0) {
+            if (listener_->service()->on_data(this, rbuf_) < 0) {
                 cbs_ = true;
                 return -1;
             }
@@ -112,7 +110,7 @@ xq::net::Session::recv() noexcept {
 
 
 int
-xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept {
+xq::net::Session::send(const char* data, size_t len) noexcept {
     if (!valid()) {
         return -1;
     }
@@ -124,7 +122,7 @@ xq::net::Session::send(const Reactor* r, const char* data, size_t len) noexcept 
     //   彻底修复需要 gen/epoch (调用方持有 (Session*, gen) pair, enqueue 前后各
     //   check 一次 gen_ 是否匹配) 或 refcount 延长对象生命周期.
     //   临时对策: 调用方保证只在 Session 所属 reactor 线程调用 send().
-    if (r != reactor_) {
+    if (std::this_thread::get_id() != reactor_->tid()) {
         xq::utils::SendBuf sb;
         sb.fill(data, len);
         ASSERT(sque_.enqueue(std::move(sb)), "sque_ 队列已满");

@@ -45,6 +45,12 @@ public:
         return tnow_;
     }
 
+
+    std::thread::id
+    tid() const noexcept {
+        return t_.get_id();
+    }
+
     
     void
     run() noexcept {

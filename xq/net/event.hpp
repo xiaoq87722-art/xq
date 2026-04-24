@@ -9,64 +9,65 @@
 namespace xq::net {
 
 
+class Conn;
+class Listener;
 class Reactor;
 class Session;
-class Listener;
-class Conn;
 
 
-struct Context {
-    Context(Reactor* r, Session* s) : reactor(r), session(s)
-    {}
-
-
-    Reactor* reactor;
-    Session* session;
-
-
-    int
-    send(const char* data, size_t len) noexcept;
-}; // struct Context;
-
-
+/** 连接端事件 */
 class IConnEvent {
 public:
+    /** 与服务端成功建立连接时触发 */
     virtual int
     on_connected(Conn* c) = 0;
 
 
+    /** 与服务端连接断开时触发 */
     virtual void
     on_disconnected(Conn* c) = 0;
 
 
+    /** 接收数据时触发 */
     virtual int
     on_data(Conn* c, const char* data, size_t len) = 0;
 }; // class IConnEvent;
 
 
+/** 监听端事件 */
 class IListnerEvent {
 public:
+    /** 监听端启动时触发 */
     virtual void
     on_start(Listener* l) = 0;
 
 
+    /** 监听停止时触发 */
     virtual void
     on_stop(Listener* l) = 0;
 
 
+    /** 会话连接成功时触发 */
     virtual int
     on_connected(Session* s) = 0;
 
 
+    /** 会话连接失败时触发 */
     virtual void
     on_disconnected(Session* s) = 0;
 
 
+    /** 接收到会话数据时触发 */
     virtual int
-    on_data(Context* ctx, xq::utils::RingBuf& rbuf) = 0;
+    on_data(Session* s, xq::utils::RingBuf& rbuf) = 0;
 }; // class IListnerEvent;
 
 
+/**
+ * @brief 事件, 该事件对象用于 EventQueue.
+ * 
+ *        拥有事件管道的对象有: reactor, processor 和 sender
+ */
 struct Event {
     enum class Type {
         Accept = 1,    // 有新的连接到达 Acceptor
@@ -76,18 +77,23 @@ struct Event {
     };
 
 
+    /** 事件类型 */
     Type type;
-    void* data;
+
+    /** 事件参数 */
+    void* param;
 };
 
 
-struct EventAcceptParam {
+/** Accept 事件参数 */
+struct EAcceptParam {
     SOCKET fd;
     Listener* l;
 };
 
 
-struct EventBroadcastParam {
+/** 广播事件参数 */
+struct EBroadcastParam {
     size_t len;
     char data[];
 };

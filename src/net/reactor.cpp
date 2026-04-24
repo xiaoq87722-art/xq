@@ -132,15 +132,15 @@ xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
         for (int i = 0; i < n; ++i) {
             switch (evs[i].type) {
                 case Event::Type::Accept: {
-                    on_accept(evs[i].data);
+                    on_accept(evs[i].param);
                 } break;
 
                 case Event::Type::Send: {
-                    on_send(evs[i].data);
+                    on_send(evs[i].param);
                 } break;
 
                 case Event::Type::Broadcast: {
-                    on_broadcast(evs[i].data);
+                    on_broadcast(evs[i].param);
                 } break;
 
                 default: {
@@ -171,7 +171,7 @@ xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
     int res;
 
-    if (res = s->send(this, nullptr, 0), res < 0) {
+    if (res = s->send(nullptr, 0), res < 0) {
         xERROR("send failed for session [{}]: {}", s->to_string(), -res);
     }
 }
@@ -179,7 +179,7 @@ xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
 
 void
 xq::net::Reactor::on_accept(void* params) noexcept {
-    auto arg = (EventAcceptParam*)params;
+    auto arg = (EAcceptParam*)params;
     auto fd = arg->fd;
 
     if (!Acceptor::instance()->sessions()[fd]) {
@@ -205,17 +205,17 @@ xq::net::Reactor::on_accept(void* params) noexcept {
 void
 xq::net::Reactor::on_send(void* arg) noexcept {
     auto s = (Session*)arg;
-    s->send(this, nullptr, 0);
+    s->send(nullptr, 0);
 }
 
 
 void
 xq::net::Reactor::on_broadcast(void* params) noexcept {
-    auto arg = (EventBroadcastParam*)params;
+    auto arg = (EBroadcastParam*)params;
 
     for (auto itr = sessions_.begin(); itr != sessions_.end();) {
         auto s = itr->second;
-        if (s->send(this, nullptr, 0) < 0) {
+        if (s->send(nullptr, 0) < 0) {
             s->cbs_ = true;
             ++itr;
             remove_session(s->fd());
