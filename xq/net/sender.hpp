@@ -73,7 +73,9 @@ public:
             bool expected = false;
             if (processing_.compare_exchange_strong(expected, true)) {
                 constexpr uint64_t event = 1;
-                ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+                if (::write(evfd_, &event, sizeof(event)) != sizeof(event)) {
+                    xERROR("write failed: [{}] {}", errno, ::strerror(errno));
+                }
             }
         }
     }

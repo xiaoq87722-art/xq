@@ -86,7 +86,7 @@ xq::net::Session::recv() noexcept {
         iovec iov[2];
         int niov = rbuf_.write_iov(iov);
         if (niov == 0) {
-            return total;
+            break;
         }
 
         ssize_t n = ::readv(fd_, iov, niov);

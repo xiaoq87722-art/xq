@@ -12,17 +12,30 @@
 
 void
 xq::net::Reactor::post(Event ev) noexcept {
-    if (running()) {
-        ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满, 调大 MPSC 容量");
-
-        bool expected = false;
-        if (processing_.compare_exchange_strong(expected, true)) {
-            static constexpr uint64_t event = 1;
-            if (::write(evfd_, &event, sizeof(event)) != sizeof(event)) {
-                xERROR("write failed: [{}] {}", errno, ::strerror(errno));
-            }
+    if (!running()) {
+        // Drop 路径: 按类型回收 malloc 的 param, 防止内存泄漏.
+        //   Accept / Broadcast 的 param 是 xq::utils::malloc 的;
+        //   Send 的 param 是池管理的 Session*, 无需释放.
+        switch (ev.type) {
+            case Event::Type::Accept:
+            case Event::Type::Broadcast:
+                if (ev.param) xq::utils::free(ev.param);
+                break;
+            default:
+                break;
         }
-    } 
+        return;
+    }
+
+    ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满, 调大 MPSC 容量");
+
+    bool expected = false;
+    if (processing_.compare_exchange_strong(expected, true)) {
+        static constexpr uint64_t event = 1;
+        if (::write(evfd_, &event, sizeof(event)) != sizeof(event)) {
+            xERROR("write failed: [{}] {}", errno, ::strerror(errno));
+        }
+    }
 }
 
 
@@ -153,19 +166,30 @@ xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
 
     int n;
-    while((n = s->recv()) > 0) {
-        if (s->listener_->service()->on_data(s, s->rbuf()) < 0) {
-            s->cbs_ = true;
+    while(1) {
+        n = s->recv();
+        if (n > 0) {
+            if (s->listener_->service()->on_data(s, s->rbuf()) < 0) {
+                s->cbs_ = true;
+                remove_session(s->fd());
+                return;
+            }
+            continue;
+        } else if (n < 0) {
+            if (n != EOF) {
+                xINFO("出现错误，关闭连接 [{}]", s->to_string());
+            }
             remove_session(s->fd());
             return;
         }
-    }
 
-    if (n < 0) {
-        if (n != EOF) {
-            xINFO("出现错误，关闭连接 [{}]", s->to_string());
+        if (!s->rbuf().empty()) {
+            if (s->listener_->service()->on_data(s, s->rbuf()) < 0) {
+                s->cbs_ = true;
+                remove_session(s->fd());
+                return;
+            }
         }
-        remove_session(s->fd());
     }
 }
 
