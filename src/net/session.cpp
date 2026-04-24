@@ -86,7 +86,9 @@ xq::net::Session::recv() noexcept {
         iovec iov[2];
         int niov = rbuf_.write_iov(iov);
         if (niov == 0) {
-            break;
+            if (listener_->service()->on_data(this, rbuf_) < 0) {
+                return -1;
+            }
         }
 
         ssize_t n = ::readv(fd_, iov, niov);
@@ -100,6 +102,11 @@ xq::net::Session::recv() noexcept {
                 }
                 return -err;
             }
+
+            if (listener_->service()->on_data(this, rbuf_) < 0) {
+                return -1;
+            }
+
             break;
         } else if (n == 0) {
             rbuf_.clear();
