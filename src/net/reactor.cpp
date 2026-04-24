@@ -12,20 +12,15 @@
 
 void
 xq::net::Reactor::post(Event ev) noexcept {
-    if (!running()) {
-        return;
-    }
+    if (running()) {
+        ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
 
-    constexpr uint64_t event = 1;
-    ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
-
-    bool processing = false;
-    if (processing_.compare_exchange_strong(processing, true)) {
-        if (::write(evfd_, &event, sizeof(event)) != sizeof(event)) {
-            int err = errno;
-            xERROR("write failed: [{}] {}", err, ::strerror(err));
-        }
-    }   
+        bool processing = false;
+        if (processing_.compare_exchange_strong(processing, true)) {
+            static constexpr uint64_t event = 1;
+            ASSERT(::write(evfd_, &event, sizeof(event)) == sizeof(event), "write failed: [{}] {}", errno, ::strerror(errno));
+        } 
+    } 
 }
 
 
@@ -60,7 +55,6 @@ xq::net::Reactor::start() noexcept {
         }
 
         tnow_ = xq::utils::systime();
-
         for (i = 0; i < nfds; ++i) {
             auto& ev = events[i];
             auto ea = (EpollArg*)ev.data.ptr;
@@ -128,7 +122,7 @@ xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
     processing_.store(false);
 
     Event evs[16];
-    while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
+    while ((n = evque_.try_dequeue_bulk(evs, 16)) > 0) {
         for (int i = 0; i < n; ++i) {
             switch (evs[i].type) {
                 case Event::Type::Accept: {
@@ -171,7 +165,7 @@ xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
     auto s = (Session*)ea->data;
     int res;
 
-    if (res = s->send(nullptr, 0), res < 0) {
+    if ((res = s->send(nullptr, 0)) < 0) {
         xERROR("send failed for session [{}]: {}", s->to_string(), -res);
     }
 }
@@ -189,7 +183,7 @@ xq::net::Reactor::on_accept(void* params) noexcept {
     s->init(fd, arg->l, this);
 
     ::epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET;
+    ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
     ev.data.ptr = s->arg();
     ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
 
@@ -205,7 +199,9 @@ xq::net::Reactor::on_accept(void* params) noexcept {
 void
 xq::net::Reactor::on_send(void* arg) noexcept {
     auto s = (Session*)arg;
-    s->send(nullptr, 0);
+    if (s->send(nullptr, 0)) {
+        xERROR("send failed for session [{}]", s->to_string());
+    }
 }
 
 
@@ -215,7 +211,7 @@ xq::net::Reactor::on_broadcast(void* params) noexcept {
 
     for (auto itr = sessions_.begin(); itr != sessions_.end();) {
         auto s = itr->second;
-        if (s->send(nullptr, 0) < 0) {
+        if (s->send(arg->data, arg->len) < 0) {
             s->cbs_ = true;
             ++itr;
             remove_session(s->fd());
@@ -223,7 +219,6 @@ xq::net::Reactor::on_broadcast(void* params) noexcept {
             ++itr;
         }
     }
-
     xq::utils::free(params);
 }
 
@@ -232,11 +227,6 @@ void
 xq::net::Reactor::timer_handle() noexcept {
     for (auto itr = sessions_.begin(); itr != sessions_.end();) {
         auto s = itr->second;
-        if (s->reactor() != this) {
-            ++itr;
-            continue;
-        }
-
         if (s->is_timeout(tnow_)) {
             SOCKET fd = itr->first;
             s->cbs_ = true;

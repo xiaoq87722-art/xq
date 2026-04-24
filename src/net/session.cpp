@@ -238,16 +238,7 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
         bytes_sent += s;
     }
 
-    if (sbuf_.readable() > 0) {
-        wait_out_ = true;
-        ::epoll_event ev;
-        ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
-        ev.data.ptr = &ea_;
-        ASSERT(!::epoll_ctl(reactor_->epfd(), EPOLL_CTL_MOD, fd_, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
-    } else {
-        wait_out_ = false;
-    }
-
+    wait_out_ = sbuf_.readable() > 0;
     return bytes_sent;
 }
 

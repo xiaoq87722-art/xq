@@ -14,6 +14,9 @@
 namespace xq::net {
 
 
+/**
+ * @brief 反应器
+ */
 class Reactor {
     Reactor(const Reactor&) = delete;
     Reactor& operator=(const Reactor&) = delete;
@@ -22,36 +25,59 @@ class Reactor {
 
 
 public:
-    explicit Reactor() noexcept {}
+    /**
+     * @brief 构造函数
+     */
+    explicit Reactor() noexcept
+    {}
 
 
-    ~Reactor() noexcept {}
+    /**
+     * @brief 析构函数
+     */
+    ~Reactor() noexcept
+    {}
 
 
+    /**
+     * @brief 是否运行
+     */
     bool
     running() const noexcept {
         return state_.load() == STATE_RUNNING;
     }
 
 
+    /**
+     * @brief epoll fd
+     */
     SOCKET
     epfd() const noexcept {
         return epfd_;
     }
 
 
+    /**
+     * @brief 当前时间, 并非 unix timestamp
+     */
     time_t
     tnow() const noexcept {
         return tnow_;
     }
 
 
+    /**
+     * @brief thread id
+     */
     std::thread::id
     tid() const noexcept {
         return t_.get_id();
     }
 
     
+    /**
+     * @brief 启动
+     */
     void
     run() noexcept {
         int state_stopped = STATE_STOPPED;
@@ -62,6 +88,9 @@ public:
     }
 
     
+    /**
+     * @brief 停止
+     */
     void
     stop() noexcept {
         int state_running = STATE_RUNNING;
@@ -72,6 +101,9 @@ public:
     }
 
 
+    /**
+     * @brief 等待结束
+     */
     void
     join() noexcept {
         if (t_.joinable()) {
@@ -80,22 +112,25 @@ public:
     }
 
 
+    /**
+     * @brief 投递消息
+     */
     void
     post(Event ev) noexcept;
 
 
+    /**
+     * @brief 添加会话
+     */
     void
     add_session(SOCKET fd, Session* s) noexcept {
         sessions_[fd] = s;
     }
 
 
-    Session*
-    get_session(SOCKET fd) noexcept {
-        return sessions_[fd];
-    }
-
-
+    /**
+     * @brief 移除会话
+     */
     void
     remove_session(SOCKET fd) noexcept {
         auto itr = sessions_.find(fd);
@@ -110,49 +145,97 @@ public:
 
 
 private:
+    /**
+     * @brief 启动
+     */
     void
     start() noexcept;
 
 
+    /**
+     * @brief 事件句柄, 处理的事件有: 
+     * 
+     *         1, Event::Type::Accept 连接事件
+     *
+     *         2, Event::Type::Send Session 发送事件
+     *
+     *         3, Event::Type::Broadcast Session 广播事件
+     */
     void
     event_handle(EpollArg* ea) noexcept;
 
 
+    /**
+     * @brief 会话读句柄
+     */
     void
     session_recv_handle(EpollArg* ea) noexcept;
 
 
+    /**
+     * @brief 会话写句柄
+     */
     void
     session_send_handle(EpollArg* ea) noexcept;
 
 
-    void
-    on_accept(void* params) noexcept;
-
-
+    /**
+     * @brief 停止句柄
+     */
     void
     on_stopped() noexcept;
 
 
+    /**
+     * @brief Event::Type::Accept 句柄
+     */
+    void
+    on_accept(void* params) noexcept;
+
+
+    /**
+     * @brief Event::Type::Send 句柄
+     */
     void
     on_send(void* params) noexcept;
 
 
+    /**
+     * @brief Event::Type::Broadcast 句柄
+     */
     void
     on_broadcast(void* params) noexcept;
 
 
+    /**
+     * @brief 定时器句柄
+     */
     void
     timer_handle() noexcept;
 
 
+    /** epoll fd */
     SOCKET epfd_ { INVALID_SOCKET };
+
+    /** event fd */
     SOCKET evfd_ { INVALID_SOCKET };
+
+    /** 当前时间 */
     time_t tnow_ { 0 };
+
+    /** 状态 */
     std::atomic<int> state_ { STATE_STOPPED };
+
+    /** 是否正在处理事件 */
     std::atomic<bool> processing_ { false };
+
+    /** 当前线程 */
     std::thread t_ {};
-    xq::utils::MPSC<Event> evque_ { 8, 1024 };
+
+    /** event queue */
+    xq::utils::MPSC<Event> evque_ { 8, 4096 };
+
+    /** 会话池 */
     std::unordered_map<SOCKET, Session*> sessions_;
 }; // class Reactor;
 

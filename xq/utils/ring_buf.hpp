@@ -112,10 +112,10 @@ public:
         }
 
         buf_ = nullptr;
-        cap_ = 0;
-        mask_ = 0;
-        head_.store(0, std::memory_order_relaxed);
-        tail_.store(0, std::memory_order_relaxed);
+        cap_ = mask_ = 0;
+        head_ = tail_ = 0;
+        // head_.store(0, std::memory_order_relaxed);
+        // tail_.store(0, std::memory_order_relaxed);
 
         if (capacity < 1) {
             capacity = 4096;
@@ -136,19 +136,22 @@ public:
 
     size_t
     readable() const noexcept {
-        return tail_.load(std::memory_order_acquire) - head_.load(std::memory_order_relaxed);
+        // return tail_.load(std::memory_order_acquire) - head_.load(std::memory_order_relaxed);
+        return tail_ - head_;
     }
 
 
     size_t
     writable() const noexcept {
-        return cap_ - (tail_.load(std::memory_order_relaxed) - head_.load(std::memory_order_acquire));
+        // return cap_ - (tail_.load(std::memory_order_relaxed) - head_.load(std::memory_order_acquire));
+        return cap_ - (tail_ - head_);
     }
 
 
     bool
     empty() const noexcept {
-        return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
+        // return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
+        return head_ == tail_;
     }
 
 
@@ -160,14 +163,16 @@ public:
             return 0;
         }
 
-        size_t tail = tail_.load(std::memory_order_relaxed) & mask_;
+        // size_t tail = tail_.load(std::memory_order_relaxed) & mask_;
+        size_t tail = tail_ & mask_;
         size_t first = std::min(n, cap_ - tail);
         ::memcpy(buf_ + tail, src, first);
         if (n > first) {
             ::memcpy(buf_, src + first, n - first);
         }
 
-        tail_.fetch_add(n, std::memory_order_release);
+        // tail_.fetch_add(n, std::memory_order_release);
+        tail_ += n;
         return n;
     }
 
@@ -178,7 +183,8 @@ public:
         size_t n = std::min(max_len, avail);
         if (n == 0) return 0;
 
-        size_t tail = tail_.load(std::memory_order_relaxed) & mask_;
+        // size_t tail = tail_.load(std::memory_order_relaxed) & mask_;
+        size_t tail = tail_ & mask_;
         size_t first = std::min(n, cap_ - tail);
 
         iov[0].iov_base = buf_ + tail;
@@ -196,7 +202,8 @@ public:
 
     void
     write_commit(size_t n) noexcept {
-        tail_.fetch_add(n, std::memory_order_release);
+        // tail_.fetch_add(n, std::memory_order_release);
+        tail_ += n;
     }
 
 
@@ -204,7 +211,8 @@ public:
     read(char* dst, size_t len) noexcept {
         size_t n = peek(dst, len);
         if (n > 0) {
-            head_.fetch_add(n, std::memory_order_release);
+            // head_.fetch_add(n, std::memory_order_release);
+            head_ += n;
         }
 
         return n;
@@ -219,7 +227,8 @@ public:
             return 0;
         }
 
-        size_t head  = head_.load(std::memory_order_relaxed) & mask_;
+        // size_t head  = head_.load(std::memory_order_relaxed) & mask_;
+        size_t head  = head_ & mask_;
         size_t first = std::min(n, cap_ - head);
         ::memcpy(dst, buf_ + head, first);
         if (n > first) ::memcpy(dst + first, buf_, n - first);
@@ -232,7 +241,8 @@ public:
     skip(size_t n) noexcept {
         size_t avail = readable();
         n = std::min(n, avail);
-        head_.fetch_add(n, std::memory_order_release);
+        // head_.fetch_add(n, std::memory_order_release);
+        head_ += n;
         return n;
     }
 
@@ -245,7 +255,8 @@ public:
             return 0;
         }
 
-        size_t head  = head_.load(std::memory_order_relaxed) & mask_;
+        // size_t head  = head_.load(std::memory_order_relaxed) & mask_;
+        size_t head  = head_ & mask_;
         size_t first = std::min(n, cap_ - head);
 
         iov[0].iov_base = buf_ + head;
@@ -263,14 +274,16 @@ public:
 
     void
     read_consume(size_t n) noexcept {
-        head_.fetch_add(n, std::memory_order_release);
+        // head_.fetch_add(n, std::memory_order_release);
+        head_ += n;
     }
 
 
     void
     clear() noexcept {
-        head_.store(0, std::memory_order_relaxed);
-        tail_.store(0, std::memory_order_relaxed);
+        head_ = tail_ = 0;
+        // head_.store(0, std::memory_order_relaxed);
+        // tail_.store(0, std::memory_order_relaxed);
     }
 
 
@@ -281,8 +294,10 @@ private:
 
 
     // 强隔离 head 和 tail，防止不同核心的缓存行竞争
-    alignas(64) std::atomic<size_t> head_ { 0 }; 
-    alignas(64) std::atomic<size_t> tail_ { 0 }; 
+    // alignas(64) std::atomic<size_t> head_ { 0 }; 
+    // alignas(64) std::atomic<size_t> tail_ { 0 }; 
+    alignas(64) size_t head_ { 0 }; 
+    alignas(64) size_t tail_ { 0 }; 
 }; // class RingBuf
 
 

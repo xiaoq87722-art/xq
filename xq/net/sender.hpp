@@ -97,7 +97,7 @@ private:
     std::atomic<int> state_ { STATE_STOPPED };
     std::atomic<bool> processing_ { false };
     std::thread t_;
-    xq::utils::MPSC<Event> evque_ { 4, 4096 };
+    xq::utils::MPSC<Event> evque_ { 8, 4096 };
 }; // class ConnSender;
 
 

@@ -94,7 +94,7 @@ xq::net::Connector::run() noexcept {
     sender_.join();
   
     // Step 7, 清理连接池
-    for (int i = 0; i < 1024; ++i) {
+    for (int i = 0; i < MAX_CONN; ++i) {
         if (conns_[i]) {
             delete conns_[i];
             conns_[i] = nullptr;
@@ -112,6 +112,7 @@ void
 xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
     static uint32_t index = 0;
 
+    // TODO: 数据没有读干净
     auto conn = (Conn*)ea->data;
     void* buf = xq::utils::malloc(RBUF_MAX);
     int n = conn->recv(buf, RBUF_MAX);
@@ -121,12 +122,10 @@ xq::net::Connector::conn_handle(EpollArg* ea) noexcept {
         return;
     }
 
-    auto p = procs_[index++ % procs_.size()];
     if (conn->proc_ == nullptr) {
-        conn->proc_ = p;
+        conn->proc_ = procs_[index++ % procs_.size()];
     }
-
-    p->post({conn, buf, n});
+    conn->proc_->post({conn, buf, n});
 }
 
 
@@ -161,6 +160,7 @@ xq::net::Connector::add_conn(Conn* conn) noexcept {
     evw.events = EPOLLET | EPOLLOUT;
     ASSERT(!::epoll_ctl(sender_.epfd(), EPOLL_CTL_ADD, conn->fd(), &evw), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
 
+    conns_[conn->fd()] = conn;
 }
 
 

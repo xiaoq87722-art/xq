@@ -64,6 +64,14 @@ public:
     }
 
 
+    std::string
+    to_string() const noexcept {
+        return std::format("[{}]:{}", fd_, host_);
+    }
+
+
+
+
     bool
     valid() const noexcept {
         return valid_.load(std::memory_order_acquire);
@@ -119,6 +127,8 @@ private:
 
     /** epoll 参数 */
     EpollArg ea_;
+
+    std::string host_;
 
     /** 发送缓冲区 */
     xq::utils::RingBuf sbuf_ { WBUF_MAX };

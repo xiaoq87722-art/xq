@@ -108,6 +108,19 @@ public:
         return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
     }
 
+
+    void
+    clear(std::function<void(T&)> handle) noexcept {
+        int n;
+        T es[16];
+        while ((n = try_dequeue_bulk(es, 16)) > 0) {
+            for (int i = 0; i < n; ++i) {
+                handle(es[i]);
+            }
+        }
+    }
+
+
 private:
     Slot slots_[N];
 

@@ -13,6 +13,9 @@
 namespace xq::net {
 
 
+/**
+ * @brief 业务端处理器
+ */
 class Processor {
     Processor(const Processor&) = delete;
     Processor& operator=(const Processor&) = delete;
@@ -20,6 +23,9 @@ class Processor {
     Processor& operator=(Processor&&) = delete;
 
 
+    /**
+     * @brief 业务消息
+     */
     struct Message {
         Conn* conn;
         void* data;
@@ -28,27 +34,42 @@ class Processor {
 
 
 public:
-    Processor(Connector* c) noexcept
+    /**
+     * @brief 构造函数
+     */
+    explicit Processor(Connector* c) noexcept
         : connector_(c)
     {}
 
 
+    /**
+     * @brief 析构函数
+     */
     ~Processor() noexcept
     {}
 
 
+    /**
+     * @brief 是否正在运行
+     */
     bool
     running() const noexcept {
         return state_.load() == STATE_RUNNING;
     }
 
 
+    /**
+     * @brief 是否正在处理业务
+     */
     bool
     processing() const noexcept {
         return processing_.load();
     }
 
 
+    /**
+     * @brief 启动 processor
+     */
     void
     run() noexcept {
         int state_stopped = STATE_STOPPED;
@@ -58,6 +79,9 @@ public:
     }
 
 
+    /**
+     * @brief 停止 processor
+     */
     void
     stop() noexcept {
         int state_running = STATE_RUNNING;
@@ -68,6 +92,9 @@ public:
     }
 
 
+    /**
+     * @brief 等待 processor 结束
+     */
     void
     join() noexcept {
         if (t_.joinable()) {
@@ -76,13 +103,16 @@ public:
     }
 
 
+    /**
+     * @brief 投递 message
+     */
     void
     post(Message e) noexcept {
         if (!running()) {
             return;
         }
 
-        ASSERT(evque_.enqueue(std::move(e)), "队列已满");
+        ASSERT(mque_.enqueue(std::move(e)), "队列已满");
 
         bool expected = false;
         if (processing_.compare_exchange_strong(expected, true)) {
@@ -93,21 +123,40 @@ public:
 
 
 private:
+    /**
+     * @brief 启动 processor
+     */
     void
     start() noexcept;
 
 
+    /**
+     * @brief 消息句柄
+     */
     void
-    event_handle(EpollArg* ea) noexcept;
+    msg_handle() noexcept;
 
 
+    /** epoll fd */
     SOCKET epfd_ { INVALID_SOCKET };
+
+    /** event fd, 用于 message queue */
     SOCKET evfd_ { INVALID_SOCKET };
+
+    /** 所属 connector */
     Connector* connector_ { nullptr };
+
+    /** 状态 */
     std::atomic<int> state_ { STATE_STOPPED };
+
+    /** 是否正在处理业务, 减少 event fd 的唤醒 */
     std::atomic<bool> processing_ { false };
+
+    /** 当前线程 */
     std::thread t_;
-    xq::utils::SPSC<Message> evque_ {};
+
+    /** 消息队列 */
+    xq::utils::SPSC<Message> mque_ {};
 }; // class Worker;
 
 

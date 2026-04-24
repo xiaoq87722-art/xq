@@ -23,6 +23,7 @@ xq::net::Conn::init(const char* host, Connector* r) noexcept {
 
     sbuf_.clear();
     sque_.clear(xq::utils::SendBuf::clear);
+    host_ = host;
 }
 
 

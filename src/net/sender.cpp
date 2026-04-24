@@ -73,12 +73,14 @@ xq::net::Sender::event_handle() noexcept {
     processing_.store(false);
 
     Event evs[16];
-    while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
+    while ((n = evque_.try_dequeue_bulk(evs, 16)) > 0) {
         for (int i = 0; i < n; ++i) {
             auto& ev = evs[i];
             ASSERT(ev.type == Event::Type::Send, "e.cmd != Event::Command::Send");
             auto c = (Conn*)ev.param;
-            c->send(nullptr, 0);
+            if (c->send(nullptr, 0)) {
+                xERROR("send failed for conn [{}]", c->to_string());
+            }
         }
     }
 }
