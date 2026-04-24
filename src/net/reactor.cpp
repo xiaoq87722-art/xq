@@ -1,191 +1,249 @@
-#include "xq/net/reactor.hpp"
-#include "xq/net/session.hpp"
+#include <pthread.h>
+
+
+#include <csignal>
+
+
 #include "xq/net/acceptor.hpp"
-
-
-static void
-on_reactor_stopped(uv_handle_t* handle) noexcept {
-    if (handle->type == UV_TCP && handle->data) {
-        xq::net::Session* s = (xq::net::Session*)handle->data;
-        s->listener()->service()->on_disconnected(s);
-        s->reactor()->remove_session(s->fd());
-        s->release();
-    } else {
-        xq::utils::free(handle);
-    }
-}
+#include "xq/net/reactor.hpp"
+#include "xq/utils/signal.h"
+#include "xq/utils/time.hpp"
 
 
 void
-xq::net::Reactor::run() {
-    int stopped_state = STATE_STOPPED;
-    if (!state_.compare_exchange_strong(stopped_state, STATE_STARTING)) {
+xq::net::Reactor::post(Event ev) noexcept {
+    if (!running()) {
         return;
     }
 
-    loop_ = (uv_loop_t*)xq::utils::malloc(sizeof(uv_loop_t), true);
-    loop_->data = this;
-    int r = ::uv_loop_init(loop_);
-    ASSERT(r == 0, "uv_loop_init failed: [{}] {}", r, ::uv_strerror(r));
+    constexpr uint64_t event = 1;
+    ASSERT(evque_.enqueue(std::move(ev)), "evque_ 队列已满");
 
-    async_ = (uv_async_t*)xq::utils::malloc(sizeof(uv_async_t), true);
-    ::uv_async_init(loop_, async_, event_handle);
+    bool processing = false;
+    if (processing_.compare_exchange_strong(processing, true)) {
+        if (::write(evfd_, &event, sizeof(event)) != sizeof(event)) {
+            int err = errno;
+            xERROR("write failed: [{}] {}", err, ::strerror(err));
+        }
+    }   
+}
 
-    state_.exchange(STATE_RUNNING);
-    r = ::uv_run(loop_, UV_RUN_DEFAULT);
-    ASSERT(r == 0, "uv_run has {} active left", r);
 
-    r = ::uv_loop_close(loop_);
-    ASSERT(r == 0, "uv_loop_close failed: [{}] {}", r, ::uv_strerror(r));
+void
+xq::net::Reactor::start() noexcept {
+    // Step 1, 屏蔽信号
+    xq::utils::block_signal({ SIGINT, SIGTERM });
 
-    xq::utils::free(loop_);
-    sessions_.clear();
-    wbuf_pool_.clear();
+    // Step 2, 初始化 epoll 和 eventfd
+    EpollArg ea { EpollArg::Type::Event, this };
+    init_epoll_event(&epfd_, &evfd_, &ea);
 
-    Event evs[64];
-    size_t n;
-    while ((n = pending_fds_.try_dequeue_bulk(evs, 64)) > 0) {
-        for (size_t i = 0; i < n; ++i) {
-            auto cmd = evs[i].first;
-            if (cmd == EVENT_ON_SEND || cmd == EVENT_ON_STOP) {
-                xq::utils::free(evs[i].second);
+    const int MAX_EVENT = Conf::instance()->per_max_conn();
+    ::epoll_event* events = (epoll_event*)xq::utils::malloc(sizeof(epoll_event) * MAX_EVENT, true);
+
+    int nfds, err, i;
+    time_t last_check_time = 0;
+    const int INTERVAL = Conf::instance()->hb_check_interval();
+    state_.store(STATE_RUNNING);
+
+    // Step 3, IO LOOP
+    while (running()) {
+        err = 0;
+        nfds = ::epoll_wait(epfd_, events, MAX_EVENT, INTERVAL);
+        if (nfds < 0) {
+            err = errno;
+            if (err == EINTR) {
+                continue;
             }
+            xERROR("epoll_wait failed: [{}] {}", err, ::strerror(err));
+            break;
+        }
+
+        tnow_ = xq::utils::systime();
+
+        for (i = 0; i < nfds; ++i) {
+            auto& ev = events[i];
+            auto ea = (EpollArg*)ev.data.ptr;
+
+            switch (ea->type) {
+                case EpollArg::Type::Event: {
+                    event_handle(ea);
+                } break;
+
+                case EpollArg::Type::Session: {
+                    if ((ev.events & (EPOLLERR | EPOLLHUP)) || ev.events & EPOLLIN) {
+                        session_recv_handle(ea);
+                    }
+
+                    auto s = (Session*)ea->data;
+                    if ((ev.events & EPOLLOUT) && s->valid()) {
+                        session_send_handle(ea);
+                    }
+                } break;
+
+                default: {
+                    xFATAL("Reactor 不应处理 EpollArg::Type {}", (int)ea->type);
+                } break;
+            } // switch (ea->type);
+        }
+
+        if (last_check_time + 5 <= tnow_) {
+            timer_handle();
+            last_check_time = tnow_;
         }
     }
 
-    state_.exchange(STATE_STOPPED);
+    // Step 4, 清空会话
+    while (!sessions_.empty()) {
+        auto itr = sessions_.begin();
+        itr->second->cbs_ = true;
+        remove_session(itr->first);
+    }
+
+    //  Step 5, 释放 epoll 和 eventfd
+    release_epoll_event(&epfd_, &evfd_);
+    
+    xq::utils::free(events);
+    state_.store(STATE_STOPPED);
 }
 
 
 void
-xq::net::Reactor::stop() {
-    ASSERT(pending_fds_.enqueue({ EVENT_ON_STOP, 0 }), "pending_fds_ 队列已满");
-    ::uv_async_send(async_);
-}
+xq::net::Reactor::event_handle(EpollArg* ea) noexcept {
+    int n;
+    uint64_t val;
 
-
-void
-xq::net::Reactor::post(Event ev) {
-    ASSERT(pending_fds_.enqueue(std::move(ev)), "pending_fds_ 队列已满");
-    ::uv_async_send(async_);
-}
-
-
-void
-xq::net::Reactor::event_handle(uv_async_t* handle) noexcept {
-    auto reactor = (xq::net::Reactor*)handle->loop->data;
-
-    Event evs[64];
-    size_t n;
-    while ((n = reactor->pending_fds_.try_dequeue_bulk(evs, 64)) > 0) {
-        for (size_t i = 0; i < n; ++i) {
-            auto& ev = evs[i];
-            switch (ev.first) {
-                case EVENT_ON_ACCEPT:
-                    reactor->on_accept(ev.second);
-                    break;
-
-                case EVENT_ON_STOP:
-                    reactor->on_stopped();
-                    break;
-
-                case EVENT_ON_SEND:
-                    reactor->on_send(ev.second);
-                    break;
-
-                default:
-                    break;
+    while (1) {
+        n = ::read(evfd_, &val, sizeof(val));
+        if (n < 0) {
+            int err = errno;
+            if (err != EAGAIN && err != EWOULDBLOCK) {
+                xERROR("read failed: [{}] {}", err, ::strerror(err));
+                return;
             }
+            break;
         }
+    }
+
+    processing_.store(false);
+
+    Event evs[16];
+    while (n = evque_.try_dequeue_bulk(evs, 16), n > 0) {
+        for (int i = 0; i < n; ++i) {
+            switch (evs[i].type) {
+                case Event::Type::Accept: {
+                    on_accept(evs[i].param);
+                } break;
+
+                case Event::Type::Send: {
+                    on_send(evs[i].param);
+                } break;
+
+                case Event::Type::Broadcast: {
+                    on_broadcast(evs[i].param);
+                } break;
+
+                default: {
+                    xFATAL("Reactor 不应处理 Event::Command {}", (int)evs[i].type);
+                } break;
+            } // switch (evs[i].cmd);
+        }
+    } // while (!evque_.empty());
+}
+
+
+void
+xq::net::Reactor::session_recv_handle(EpollArg* ea) noexcept {
+    auto s = (Session*)ea->data;
+
+    int n = s->recv();
+    if (n <= 0) {
+        if (n != EOF) {
+            xINFO("出现错误，关闭连接 [{}]", s->to_string());
+        }
+        remove_session(s->fd());
+    }
+}
+
+
+void
+xq::net::Reactor::session_send_handle(EpollArg* ea) noexcept {
+    auto s = (Session*)ea->data;
+    int res;
+
+    if (res = s->send(nullptr, 0), res < 0) {
+        xERROR("send failed for session [{}]: {}", s->to_string(), -res);
     }
 }
 
 
 void
 xq::net::Reactor::on_accept(void* params) noexcept {
-    auto arg = (OnAcceptArg*)params;
+    auto arg = (EAcceptParam*)params;
     auto fd = arg->fd;
-    uv_tcp_t* c = Acceptor::instance()->sessions()[fd];
-    if (!c) {
-        Acceptor::instance()->sessions()[fd] = c = (uv_tcp_t*)xq::utils::malloc(sizeof(uv_tcp_t), true);
-        c->data = (Session*)xq::utils::malloc(sizeof(Session), true);
+
+    if (!Acceptor::instance()->sessions()[fd]) {
+        Acceptor::instance()->sessions()[fd] = Session::create();
     }
+    auto s = Acceptor::instance()->sessions()[fd];
+    s->init(fd, arg->l, this);
 
-    auto s = (Session*)(c->data);
-    s->init(c, arg->l, this);
-
-    int r = ::uv_tcp_init(loop_, c);
-    ASSERT(r == 0, "uv_tcp_init failed: [{}] {}", r, ::uv_strerror(r));
-
-    r = ::uv_tcp_open(c, fd);
-    ASSERT(r == 0, "uv_tcp_open failed: [{}] {}", r, ::uv_strerror(r));
-
-    r = ::uv_read_start((uv_stream_t*)c, on_read_alloc, on_read);
-    ASSERT(r == 0, "uv_read_start failed: [{}] {}", r, ::uv_strerror(r));
+    ::epoll_event ev;
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.ptr = s->arg();
+    ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev), "epoll_ctl failed: [{}] {}", errno, ::strerror(errno));
 
     add_session(fd, s);
-    arg->l->service()->on_connected(s);
-    xq::utils::free(arg);
-}
-
-
-void
-xq::net::Reactor::on_stopped() noexcept {
-    int state_running = STATE_RUNNING;
-    if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
-        ::uv_walk(loop_, [](uv_handle_t* handle, void*) {
-            if (!::uv_is_closing(handle)) {
-                ::uv_close(handle, on_reactor_stopped);
-            }
-        }, nullptr);
+    if (arg->l->service()->on_connected(s)) {
+        s->cbs_ = true;
+        remove_session(fd);
     }
-}
-
-
-void
-xq::net::Reactor::on_send(void* arg) noexcept {
-    auto params = (OnSendArg*)arg;
-    auto uv = params->s->uv();
-
-    if (uv && !::uv_is_closing((uv_handle_t*)uv)) {
-        auto wb = write_buf_pool().get();
-        ::memcpy(wb->data, params->data, params->len);
-        wb->reactor = this;
-
-        wb->req.data = wb;
-        uv_buf_t wrbuf = uv_buf_init(wb->data, params->len);
-        ::uv_write(&wb->req, (uv_stream_t*)params->s->uv(), &wrbuf, 1, Session::on_write);
-    }
-    
     xq::utils::free(params);
 }
 
 
 void
-xq::net::Reactor::on_read_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) noexcept {
-    Session* s = (Session*)handle->data;
-    buf->base = s->rbuf();
-    buf->len = RBUF_MAX;
+xq::net::Reactor::on_send(void* arg) noexcept {
+    auto s = (Session*)arg;
+    s->send(nullptr, 0);
 }
 
 
 void
-xq::net::Reactor::on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) noexcept {
-    Session* s = (Session*)stream->data;
-    
-    if (nread > 0) {
-        Context ctx { .reactor = s->reactor(), .session = s };
-        s->listener()->service()->on_data(&ctx, buf->base, nread);
-    } else if (nread < 0) {
-        if (nread != UV_EOF) {
-            xERROR("on_read failed: [{}] {}", nread, ::uv_strerror(nread));
+xq::net::Reactor::on_broadcast(void* params) noexcept {
+    auto arg = (EBroadcastParam*)params;
+
+    for (auto itr = sessions_.begin(); itr != sessions_.end();) {
+        auto s = itr->second;
+        if (s->send(nullptr, 0) < 0) {
+            s->cbs_ = true;
+            ++itr;
+            remove_session(s->fd());
+        } else {
+            ++itr;
+        }
+    }
+
+    xq::utils::free(params);
+}
+
+
+void
+xq::net::Reactor::timer_handle() noexcept {
+    for (auto itr = sessions_.begin(); itr != sessions_.end();) {
+        auto s = itr->second;
+        if (s->reactor() != this) {
+            ++itr;
+            continue;
         }
 
-        ::uv_close((uv_handle_t*)stream, [](uv_handle_t* handle) {
-            Session* s = (Session*)handle->data;
-            s->listener()->service()->on_disconnected(s);
-            s->reactor()->remove_session(s->fd());
-            s->release();
-        });
+        if (s->is_timeout(tnow_)) {
+            SOCKET fd = itr->first;
+            s->cbs_ = true;
+            ++itr;
+            remove_session(fd);
+        } else {
+            ++itr;
+        }
     }
 }

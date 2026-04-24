@@ -3,9 +3,9 @@
 
 
 #include <signal.h>
+
+
 #include <initializer_list>
-#include <functional>
-#include "xq/utils/log.hpp"
 
 
 namespace xq::utils {
@@ -16,6 +16,10 @@ namespace xq::utils {
  */
 void
 regist_signal(__sighandler_t handle, const std::initializer_list<int>& siglist);
+
+
+void
+block_signal(const std::initializer_list<int>& siglist);
 
     
 } // namespace xq::utils

@@ -12,7 +12,7 @@ namespace xq::utils {
 /**
  * @brief 获取系统启动时间(秒)
  */
-inline uint64_t
+inline time_t
 systime() noexcept{
     struct timespec ts{};
     ASSERT(::clock_gettime(CLOCK_MONOTONIC, &ts) == 0, "[{}] {}", errno, ::strerror(errno));

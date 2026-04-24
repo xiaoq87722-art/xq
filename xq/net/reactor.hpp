@@ -2,12 +2,13 @@
 #define __XQ_NET_REACTOR_HPP__
 
 
-#include "xq/net/write_buf.hpp"
+#include <atomic>
+#include <unordered_map>
+
+
 #include "xq/net/event.hpp"
-#include "xq/net/conf.hpp"
 #include "xq/net/session.hpp"
 #include "xq/utils/mpsc.hpp"
-#include <atomic>
 
 
 namespace xq::net {
@@ -21,10 +22,6 @@ class Reactor {
 
 
 public:
-    static void
-    on_write(uv_write_t* req, int status) noexcept;
-
-
     explicit Reactor() noexcept {}
 
 
@@ -33,20 +30,58 @@ public:
 
     bool
     running() const noexcept {
-        return state_.load(std::memory_order_relaxed) == STATE_RUNNING;
+        return state_.load() == STATE_RUNNING;
+    }
+
+
+    SOCKET
+    epfd() const noexcept {
+        return epfd_;
+    }
+
+
+    time_t
+    tnow() const noexcept {
+        return tnow_;
+    }
+
+
+    std::thread::id
+    tid() const noexcept {
+        return t_.get_id();
     }
 
     
     void
-    run();
+    run() noexcept {
+        int state_stopped = STATE_STOPPED;
+
+        if (state_.compare_exchange_strong(state_stopped, STATE_STARTING)) {
+            t_ = std::thread(&Reactor::start, this);
+        }
+    }
 
     
     void
-    stop();
+    stop() noexcept {
+        int state_running = STATE_RUNNING;
+        if (state_.compare_exchange_strong(state_running, STATE_STOPPING)) {
+            constexpr uint64_t stop = 1;
+            ASSERT(::write(evfd_, &stop, sizeof(stop)) == sizeof(stop), "write failed: [{}] {}", errno, ::strerror(errno));
+        }
+    }
 
 
     void
-    post(Event ev);
+    join() noexcept {
+        if (t_.joinable()) {
+            t_.join();
+        }
+    }
+
+
+    void
+    post(Event ev) noexcept;
 
 
     void
@@ -61,33 +96,38 @@ public:
     }
 
 
-    WriteBuf::Pool&
-    write_buf_pool() noexcept {
-        return wbuf_pool_;
-    }
-
-
     void
     remove_session(SOCKET fd) noexcept {
-        sessions_.erase(fd);
+        auto itr = sessions_.find(fd);
+        if (itr != sessions_.end()) {
+            auto s = itr->second;
+            s->listener()->service()->on_disconnected(s);
+            ASSERT(!::epoll_ctl(epfd_, EPOLL_CTL_DEL, s->fd(), nullptr), "epoll_ctl failed");
+            sessions_.erase(itr);
+            s->release();
+        }
     }
 
 
 private:
-    static void
-    event_handle(uv_async_t* handle) noexcept;
-
-
-    static void
-    on_read_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) noexcept;
-
-
-    static void
-    on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) noexcept;
+    void
+    start() noexcept;
 
 
     void
-    on_accept(void* arg) noexcept;
+    event_handle(EpollArg* ea) noexcept;
+
+
+    void
+    session_recv_handle(EpollArg* ea) noexcept;
+
+
+    void
+    session_send_handle(EpollArg* ea) noexcept;
+
+
+    void
+    on_accept(void* params) noexcept;
 
 
     void
@@ -95,15 +135,25 @@ private:
 
 
     void
-    on_send(void* arg) noexcept;
+    on_send(void* params) noexcept;
 
 
-    uv_loop_t* loop_ { nullptr };
-    uv_async_t* async_ { nullptr };
+    void
+    on_broadcast(void* params) noexcept;
+
+
+    void
+    timer_handle() noexcept;
+
+
+    SOCKET epfd_ { INVALID_SOCKET };
+    SOCKET evfd_ { INVALID_SOCKET };
+    time_t tnow_ { 0 };
     std::atomic<int> state_ { STATE_STOPPED };
-    xq::utils::MPSC<Event> pending_fds_ { 8, 1024 };
+    std::atomic<bool> processing_ { false };
+    std::thread t_ {};
+    xq::utils::MPSC<Event> evque_ { 8, 1024 };
     std::unordered_map<SOCKET, Session*> sessions_;
-    WriteBuf::Pool wbuf_pool_;
 }; // class Reactor;
 
 

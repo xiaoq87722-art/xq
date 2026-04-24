@@ -2,7 +2,11 @@
 #define __XQ_NET_SESSION_HPP__
 
 
-#include "xq/net/net.in.h"
+#include "xq/net/conf.hpp"
+#include "xq/net/event.hpp"
+#include "xq/net/net.in.hpp"
+#include "xq/utils/mpsc.hpp"
+#include "xq/utils/ring_buf.hpp"
 
 
 namespace xq::net {
@@ -13,54 +17,48 @@ class Listener;
 
 
 class Session {
+    friend class Reactor;
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+    Session(Session&&) = delete;
+    Session& operator=(Session&&) = delete;
+
+
 public:
-    static void
-    on_write(uv_write_t* req, int status) noexcept;
+    static Session*
+    create() {
+        auto p = xq::utils::malloc(sizeof(Session));
+        return new(p) Session;
+    }
 
 
-    Session()
-    {}
-
-
-    ~Session()
+    ~Session() noexcept
     {}
 
 
     void
-    init(uv_tcp_t* uv, Listener* listener, Reactor* reactor) noexcept {
-        uv_ = uv;
-        listener_ = listener;
-        reactor_ = reactor;
-
-        ::uv_fileno((const uv_handle_t*)uv_, &fd_);
-        socklen_t addrlen = sizeof(addr_);
-        ::getpeername(fd_, (sockaddr*)&addr_, &addrlen);
-    }
+    init(SOCKET fd, Listener* listener, Reactor* reactor) noexcept;
 
 
     void
-    release() noexcept {
-        if (fd_ != INVALID_SOCKET) {
-            fd_ = INVALID_SOCKET;
-        }
+    release() noexcept;
 
-        if (uv_) {
-            uv_ = nullptr;
-        }
 
-        if (listener_) {
-            listener_ = nullptr;
-        }
-
-        if (reactor_) {
-            reactor_ = nullptr;
-        }
+    bool
+    valid() const noexcept {
+        return fd_ != INVALID_SOCKET;
     }
 
 
-    uv_tcp_t*
-    uv() noexcept {
-        return uv_;
+    SOCKET
+    fd() noexcept {
+        return fd_;
+    }
+
+
+    bool
+    closed_by_server() const noexcept {
+        return cbs_;
     }
 
 
@@ -76,15 +74,9 @@ public:
     }
 
 
-    SOCKET
-    fd() noexcept {
-        return fd_;
-    }
-
-
-    char*
-    rbuf() noexcept {
-        return rbuf_;
+    EpollArg*
+    arg() noexcept {
+        return &ea_;
     }
 
 
@@ -94,17 +86,49 @@ public:
     }
 
 
-    void
-    send(const Reactor* r, char* data, size_t len) noexcept;
+    xq::utils::RingBuf&
+    rbuf() noexcept {
+        return rbuf_;
+    }
+
+
+    int
+    recv() noexcept;
+
+
+    int
+    send(const char* data, size_t len) noexcept;
+
+
+    int
+    broadcast(const char* data, size_t len) noexcept;
 
 
 private:
+    Session() noexcept
+    {}
+
+
+    bool
+    is_timeout(time_t now) const noexcept {
+        return now - last_active_ >= Conf::instance()->timeout();
+    }
+
+
+    bool cbs_ { false };
     SOCKET fd_ { INVALID_SOCKET };
-    uv_tcp_t* uv_ { nullptr };
+    time_t last_active_ { 0 };
     Listener* listener_ { nullptr };
     Reactor* reactor_ { nullptr };
+    EpollArg ea_ {};
     sockaddr_storage addr_ {};
-    char rbuf_[RBUF_MAX];
+
+    bool wait_out_ { false };
+    std::atomic<bool> sending_ { false };
+    xq::utils::RingBuf sbuf_ { WBUF_MAX };
+    xq::utils::RingBuf rbuf_ { RBUF_MAX };
+
+    xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 32 };
 }; // class Session;
 
     

@@ -1,10 +1,11 @@
-#include "xq/utils/log.hpp"
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 
-namespace xq {
-namespace utils {
+#include "xq/utils/log.hpp"
+
+
+namespace xq::utils {
 
 
 // 级别过滤 wrapper
@@ -13,31 +14,42 @@ private:
     std::shared_ptr<spdlog::sinks::sink> wrapped_sink_;
     spdlog::level::level_enum target_level_;
 
+
 public:
     LevelFilterSink(std::shared_ptr<spdlog::sinks::sink> sink, spdlog::level::level_enum level)
-        : wrapped_sink_(sink), target_level_(level) {}
+        : wrapped_sink_(sink), target_level_(level) 
+    {}
 
-    void log(const spdlog::details::log_msg& msg) override {
+
+    void
+    log(const spdlog::details::log_msg& msg) override {
         if (msg.level == target_level_) {
             wrapped_sink_->log(msg);
         }
     }
 
-    void flush() override {
+
+    void
+    flush() override {
         wrapped_sink_->flush();
     }
 
-    void set_pattern(const std::string& pattern) override {
+
+    void
+    set_pattern(const std::string& pattern) override {
         wrapped_sink_->set_pattern(pattern);
     }
 
-    void set_formatter(std::unique_ptr<spdlog::formatter> formatter) override {
+
+    void
+    set_formatter(std::unique_ptr<spdlog::formatter> formatter) override {
         wrapped_sink_->set_formatter(std::move(formatter));
     }
 };
 
-} // namespace utils
-} // namespace xq
+
+} // namespace xq::utils
+
 
 void
 xq::utils::init_log(const std::string& log_dir) {

@@ -1,8 +1,8 @@
 #ifndef __XQ_NET_LISTENER_HPP_
 #define __XQ_NET_LISTENER_HPP_
 
-#include "xq/net/session.hpp"
-#include "xq/net/net.in.h"
+
+#include "xq/net/event.hpp"
 #include "xq/utils/log.hpp"
 
 
@@ -10,76 +10,102 @@ namespace xq::net {
 
 
 class Acceptor;
-class Listener;
-class Reactor;
 
 
-struct Context {
-    Reactor* reactor { nullptr };
-    Session* session { nullptr };
-
-    void
-    send(const char* data, size_t len) noexcept {
-        session->send(reactor, const_cast<char*>(data), len);
-    }
-};
-
-
-class IService {
-public:
-    virtual void on_start(Listener* l) = 0;
-    virtual void on_stop(Listener* l) = 0;
-    virtual void on_connected(Session* s) = 0;
-    virtual void on_disconnected(Session* s) = 0;
-    virtual void on_data(Context* ctx, const char* data, size_t len) = 0;
-}; // class IService;
-
-
+/** 监听器 */
 class Listener {
 public:
-    Listener(IService* service, const char* endpoint, uint16_t port)
-        : service_(service) {
+    /**
+     * @brief 构造函数
+     *
+     * @param le       IListenerEvent 实例
+     * @param endpoint 监听地址
+     * @param port     监听端口
+     */
+    Listener(IListnerEvent* le, const char* endpoint, uint16_t port) noexcept
+        : le_(le) {
         ASSERT(endpoint && port > 0, "params is invalid");
         host_ = std::format("{}:{}", endpoint, port);
+        arg_.type = EpollArg::Type::Listener;
+        arg_.data = this;
     }
 
 
-    ~Listener() {}
+    /**
+     * @brief 析构函数
+     */
+    ~Listener() noexcept
+    {}
 
 
+    /**
+     * @brief 格式化
+     */
     std::string
     to_string() const noexcept {
         return host_;
     }
 
 
-    IService*
-    service() noexcept {
-        return service_;
+    /**
+     * @brief socket fd
+     */
+    SOCKET
+    fd() const noexcept {
+        return fd_;
     }
 
 
+    /**
+     * @brief 事件对象
+     */
+    IListnerEvent*
+    service() noexcept {
+        return le_;
+    }
+
+
+    /**
+     * @brief epoll 参数
+     */
+    EpollArg*
+    arg() noexcept {
+        return &arg_;
+    }
+
+
+    /**
+     * @brief 所属的 Acceptor
+     */
+    Acceptor*
+    acceptor() noexcept {
+        return acceptor_;
+    }
+
+
+    /**
+     * @brief 启动监听
+     */
     void
-    start(Acceptor* acceptor, uv_poll_cb cb) noexcept;
+    start(Acceptor* acceptor) noexcept;
 
 
+    /**
+     * @brief 停止监听
+     */
     void
-    stop() {
-        if (poll_handle_) {
-            ::uv_close((uv_handle_t*)poll_handle_, [](uv_handle_t* handle) {
-                xq::utils::free(handle);
-            });
-            poll_handle_ = nullptr;
-        }
-
+    stop() noexcept {
         if (fd_ != INVALID_SOCKET) {
-            service_->on_stop(this);
+            le_->on_stop(this);
             ::close(fd_);
             fd_ = INVALID_SOCKET;
         }
     }
 
 
+    /**
+     * @brief 接收连接 socket
+     */
     SOCKET
     accept() noexcept {
         return ::accept4(fd_, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
@@ -87,17 +113,24 @@ public:
 
 
 private:
-
+    /** 监听 socket fd */
     SOCKET fd_ { INVALID_SOCKET };
-    std::string host_ {};
-    uv_poll_t* poll_handle_ { nullptr };
+
+    /** 事件实例 */
+    IListnerEvent* le_ { nullptr };
+
+    /** 所属 acceptor */
     Acceptor* acceptor_ { nullptr };
-    IService* service_ { nullptr };
+
+    /** 用于 epoll_event.data.ptr */
+    EpollArg arg_ {};
+
+    /** 监听地址 */
+    std::string host_ {};
 }; // class Listener;
 
 
 } // namespace xq::net
-
 
 
 #endif // __XQ_NET_LISTENER_HPP_
