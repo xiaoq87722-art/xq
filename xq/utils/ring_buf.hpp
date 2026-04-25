@@ -19,7 +19,7 @@ namespace xq::utils {
 
 
 struct SendBuf {
-    static constexpr size_t INLINE_CAP = 512;
+    static constexpr size_t INLINE_CAP = 256;
 
 
     static void

@@ -162,11 +162,6 @@ xq::net::Session::send(const char* data, size_t len) noexcept {
         return 0;
     }
 
-    // 同线程分支: 本线程即 owner, valid_ 只会被本线程修改, relaxed 读即可.
-    if (!valid_.load(std::memory_order_relaxed)) {
-        return -1;
-    }
-
     if (wait_out_ && data && len > 0) {
         ASSERT(sbuf_.write(data, len) == len, "sbuf_ 写入失败 (积压超过 WBUF_MAX), 调大 WBUF_MAX");
         return 0;

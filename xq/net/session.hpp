@@ -163,7 +163,7 @@ private:
      * @brief 跨线程发送队列 (MPSC). 跨线程 send 走此通路, 同线程 send 绕过.
      *        若 enqueue ASSERT 触发, 说明跨线程峰值突发超过容量, 需调大 per_shard_size.
      */
-    xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 32 };
+    xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 64 };
 }; // class Session;
 
     

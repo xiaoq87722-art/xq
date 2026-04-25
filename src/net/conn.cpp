@@ -72,6 +72,10 @@ xq::net::Conn::recv() noexcept {
 
 int
 xq::net::Conn::send(const char* data, size_t len) noexcept {
+    if (!valid()) {
+        return -1;
+    }
+
     // 跨线程分支: 由 active_senders_ + valid_ 双原子保护, 杜绝池复用 UAR race.
     //   1) fetch_add 宣告 "我正在使用这个 Conn"
     //   2) 在保护区内再次 check valid_ (seq_cst 配对保证 StoreLoad 顺序)
@@ -94,11 +98,6 @@ xq::net::Conn::send(const char* data, size_t len) noexcept {
 
         active_senders_.fetch_sub(1, std::memory_order_release);
         return 0;
-    }
-
-    // 同线程分支: 本线程即 Sender, valid_ 只会被本线程修改, relaxed 读即可.
-    if (!valid_.load(std::memory_order_relaxed)) {
-        return -1;
     }
 
     if (wait_out_ && data && len > 0) {

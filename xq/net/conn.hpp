@@ -81,8 +81,6 @@ public:
     }
 
 
-
-
     bool
     valid() const noexcept {
         return valid_.load(std::memory_order_acquire);
@@ -171,7 +169,7 @@ private:
      * @brief 跨线程发送队列 (MPSC). Processor 线程 send 走此通路, Sender 同线程 send 绕过.
      *        若 enqueue ASSERT 触发, 说明跨线程峰值突发超过容量, 需调大 per_shard_size.
      */
-    xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 4096 };
+    xq::utils::MPSC<xq::utils::SendBuf> sque_ { 4, 256 };
 }; // class Conn;
 
 
