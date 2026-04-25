@@ -40,13 +40,7 @@ xq::net::Conn::recv() noexcept {
     while (1) {
         iovec iov[2];
         auto rb = new xq::utils::RingBuf(RBUF_MAX);
-
         int niov = rb->write_iov(iov);
-        if (niov == 0) {
-            proc_->post({ this, rb });
-            continue;
-        }
-
         int n = ::readv(fd_, iov, niov);
         if (n < 0) {
             delete rb;

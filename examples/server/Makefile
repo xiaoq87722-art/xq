@@ -19,7 +19,8 @@ CXXFLAGS = $(BASE_CXXFLAGS) -DNDEBUG
 LIBS = $(BASE_LIBS)
 
 all:
-	@START_TIME=$$(date +%s); \
+	@set -e; \
+	START_TIME=$$(date +%s); \
 	$(MAKE) $(TARGET) --no-print-directory; \
 	END_TIME=$$(date +%s); \
 	ELAPSED=$$(($$END_TIME - $$START_TIME)); \
@@ -27,7 +28,8 @@ all:
 
 # debug: 不带 NDEBUG, 启用 gperftools profiler (火焰图)
 debug:
-	@START_TIME=$$(date +%s); \
+	@set -e; \
+	START_TIME=$$(date +%s); \
 	$(MAKE) clean --no-print-directory; \
 	$(MAKE) $(TARGET) CXXFLAGS='$(BASE_CXXFLAGS)' LIBS='$(BASE_LIBS) -lprofiler' --no-print-directory; \
 	END_TIME=$$(date +%s); \

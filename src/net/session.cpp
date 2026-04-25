@@ -91,11 +91,15 @@ xq::net::Session::recv() noexcept {
         int niov = rbuf_.write_iov(iov);
         if (niov == 0) {
             size_t before = rbuf_.readable();
+
+            last_active_ = reactor_->tnow();
             if (listener_->service()->on_data(this, rbuf_) < 0) {
                 return -1;
             }
-            // 如果业务没消费数据，缓冲区依然是满的，必须跳出循环防止死循环
-            if (rbuf_.readable() >= before) break; 
+
+            if (rbuf_.readable() >= before) {
+                break; 
+            }
             continue;
         }
 
@@ -111,6 +115,7 @@ xq::net::Session::recv() noexcept {
                 return -err;
             }
 
+            last_active_ = reactor_->tnow();
             if (!rbuf_.empty() && listener_->service()->on_data(this, rbuf_) < 0) {
                 return -1;
             }
@@ -123,7 +128,6 @@ xq::net::Session::recv() noexcept {
         total += n;
     }
 
-    last_active_ = reactor_->tnow();
     return total;
 }
 
